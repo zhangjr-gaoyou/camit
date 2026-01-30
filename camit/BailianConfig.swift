@@ -3,8 +3,27 @@ import Foundation
 struct BailianConfig: Codable, Equatable {
     var apiKey: String = ""
     var model: String = "qwen-plus"
+    /// Vision-language model (e.g. qwen-vl-plus).
+    var vlModel: String = "qwen-vl-plus"
     /// DashScope OpenAI-compatible base URL by default.
     var baseURL: String = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+    enum CodingKeys: String, CodingKey {
+        case apiKey
+        case model
+        case vlModel
+        case baseURL
+    }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? ""
+        model = try container.decodeIfPresent(String.self, forKey: .model) ?? "qwen-plus"
+        vlModel = try container.decodeIfPresent(String.self, forKey: .vlModel) ?? "qwen-vl-plus"
+        baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    }
 
     static func configFileURL() throws -> URL {
         let fm = FileManager.default

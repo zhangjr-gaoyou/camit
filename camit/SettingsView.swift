@@ -6,6 +6,7 @@ struct SettingsView: View {
 
     @State private var apiKey: String = ""
     @State private var model: String = ""
+    @State private var vlModel: String = ""
     @State private var baseURL: String = ""
     @State private var alertMessage: String?
 
@@ -17,6 +18,9 @@ struct SettingsView: View {
                         .modifier(PlatformTextContentTypePassword())
 
                     TextField("模型（例如：qwen-plus）", text: $model)
+                        .modifier(PlatformTextInputTraits())
+
+                    TextField("VL 模型（例如：qwen-vl-plus）", text: $vlModel)
                         .modifier(PlatformTextInputTraits())
 
                     TextField("Base URL", text: $baseURL)
@@ -49,6 +53,7 @@ struct SettingsView: View {
             .onAppear {
                 apiKey = settings.bailianConfig.apiKey
                 model = settings.bailianConfig.model
+                vlModel = settings.bailianConfig.vlModel
                 baseURL = settings.bailianConfig.baseURL
             }
             .alert("提示", isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })) {
@@ -57,12 +62,15 @@ struct SettingsView: View {
                 Text(alertMessage ?? "")
             }
         }
+#if os(macOS)
         .frame(minWidth: 420, minHeight: 320)
+#endif
     }
 
     private func save() {
         settings.bailianConfig.apiKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         settings.bailianConfig.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.bailianConfig.vlModel = vlModel.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBaseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         settings.bailianConfig.baseURL = trimmedBaseURL.isEmpty ? BailianConfig().baseURL : trimmedBaseURL
 
