@@ -102,10 +102,15 @@ struct BailianClient {
           "title": "试卷或作业标题（若无法判断可为空字符串）",
           "subject": "科目（如 语文/数学/英语/地理/物理/化学/其他）",
           "grade": "年级（如 小一/小二/小三/小四/小五/小六/初一/初二/初三/其他）",
-          "items": [ {"type": "板块分类", "content": "一、选择题"}, {"type": "题干", "content": "下列...一项是（ ）"}, {"type": "题目", "content": "A. ...\\\\nB. ...\\\\nC. ...\\\\nD. ..."} ],
+          "items": [ 
+            {"type": "板块分类", "content": "一、选择题", "bbox": {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.05}},
+            {"type": "题干", "content": "下列...一项是（ ）", "bbox": {"x": 0.1, "y": 0.25, "width": 0.8, "height": 0.08}},
+            {"type": "题目", "content": "A. ...\\\\nB. ...\\\\nC. ...\\\\nD. ...", "bbox": {"x": 0.1, "y": 0.33, "width": 0.8, "height": 0.15}}
+          ],
           "score": 86 或 null
         }
         type 只能是 "板块分类"、"题干"、"题目" 之一。
+        bbox 为该项在图片中的边界框，坐标为归一化值（0-1）：x/y 为左上角相对位置，width/height 为相对宽高。如果无法确定位置可省略 bbox。
         """
 
         let userText = "请分析这张图片。"
@@ -186,6 +191,15 @@ private struct ChatCompletionsResponse: Codable {
 struct PaperVisionItem: Codable, Equatable {
     let type: String  // 板块分类 / 题干 / 题目
     let content: String
+    /// 题目在图片中的边界框（归一化坐标 0-1）：{x, y, width, height}
+    let bbox: BBox?
+}
+
+struct BBox: Codable, Equatable {
+    let x: Double      // 左上角 x（归一化 0-1）
+    let y: Double      // 左上角 y（归一化 0-1）
+    let width: Double  // 宽度（归一化 0-1）
+    let height: Double // 高度（归一化 0-1）
 }
 
 struct PaperVisionResult: Codable, Equatable {
@@ -199,12 +213,12 @@ struct PaperVisionResult: Codable, Equatable {
     let questions: [String]?
     let score: Int?
 
-    /// 统一为 (type, content) 列表
-    var normalizedItems: [(type: String, content: String)] {
+    /// 统一为 (type, content, bbox) 列表
+    var normalizedItems: [(type: String, content: String, bbox: BBox?)] {
         if let items = items, !items.isEmpty {
-            return items.map { ($0.type, $0.content) }
+            return items.map { ($0.type, $0.content, $0.bbox) }
         }
-        return (questions ?? []).map { ("题目", $0) }
+        return (questions ?? []).map { ("题目", $0, nil) }
     }
 }
 

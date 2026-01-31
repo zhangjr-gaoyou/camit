@@ -224,7 +224,7 @@ struct HomeView: View {
                     selectedScore = .all
                 }
             } label: {
-                Text("全部试卷")
+                Text("全部")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(isAllScanSelected ? .white : .primary)
                     .padding(.horizontal, 14)

@@ -5,6 +5,7 @@ struct WrongQuestionsView: View {
     @State private var showAllQuestions: Bool = false
     @State private var analyzingQuestionIDs: Set<UUID> = []
     @State private var alertMessage: String?
+    @State private var cropImageToShow: String?
 
     private var papersWithQuestions: [ScanItem] {
         store.items.filter { !$0.questions.isEmpty }
@@ -45,8 +46,24 @@ struct WrongQuestionsView: View {
             } message: {
                 Text(alertMessage ?? "")
             }
+            .sheet(item: Binding(
+                get: { cropImageToShow.map { CropImageWrapper(fileName: $0) } },
+                set: { cropImageToShow = $0?.fileName }
+            )) { wrapper in
+                if let url = try? store.imageURL(fileName: wrapper.fileName),
+                   let ui = UIImage(contentsOfFile: url.path) {
+                    ImageViewer(image: ui, allowZoomAndPan: true)
+                } else {
+                    Text("无法加载切图")
+                }
+            }
         }
     }
+}
+
+private struct CropImageWrapper: Identifiable {
+    let id = UUID()
+    let fileName: String
 }
 
 /// 错题页单项卡片：板块分类仅加粗 Label；题干/题目与「生成答案与解析」及生成结果同卡展示，题目才有圆形按钮。
@@ -56,6 +73,7 @@ private struct ItemCard: View {
     let onToggleWrong: () -> Void
     let onAnalyze: () -> Void
     let isAnalyzing: Bool
+    let onShowCropImage: () -> Void
 
     private var isSectionKind: Bool {
         (question.kind ?? "题目") == "板块分类"
@@ -130,6 +148,15 @@ private struct ItemCard: View {
                         .foregroundStyle(.blue)
                     }
                     Spacer()
+                    if question.cropImageFileName != nil {
+                        Button(action: onShowCropImage) {
+                            Image(systemName: "photo")
+                                .foregroundStyle(.blue)
+                                .font(.system(size: 18, weight: .semibold))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("显示题目切图")
+                    }
                     Button(action: onToggleWrong) {
                         Image(systemName: question.isWrong ? "xmark.circle.fill" : "circle")
                             .foregroundStyle(question.isWrong ? Color.red : Color.secondary)
@@ -193,7 +220,8 @@ private extension WrongQuestionsView {
                         question: q,
                         onToggleWrong: { store.toggleWrong(scanID: paper.id, questionID: q.id) },
                         onAnalyze: { analyzeQuestion(paper: paper, question: q) },
-                        isAnalyzing: analyzingQuestionIDs.contains(q.id)
+                        isAnalyzing: analyzingQuestionIDs.contains(q.id),
+                        onShowCropImage: { cropImageToShow = q.cropImageFileName }
                     )
                     .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                     .listRowBackground(Color.clear)

@@ -34,7 +34,14 @@ final class ScanStore: ObservableObject {
         let grade = Grade(rawValue: result.grade) ?? .other
 
         let questions: [PaperQuestion] = result.normalizedItems.enumerated().map { idx, item in
-            PaperQuestion(index: idx + 1, kind: item.type, text: item.content, isWrong: false)
+            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx)
+            return PaperQuestion(
+                index: idx + 1,
+                kind: item.type,
+                text: item.content,
+                isWrong: false,
+                cropImageFileName: cropFileName
+            )
         }
 
         let title = result.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -96,7 +103,14 @@ final class ScanStore: ObservableObject {
         let result = try await BailianClient().analyzePaper(imageJPEGData: data, config: config)
         let startIndex = items[i].questions.count
         let newQuestions: [PaperQuestion] = result.normalizedItems.enumerated().map { idx, item in
-            PaperQuestion(index: startIndex + idx + 1, kind: item.type, text: item.content, isWrong: false)
+            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: startIndex + idx)
+            return PaperQuestion(
+                index: startIndex + idx + 1,
+                kind: item.type,
+                text: item.content,
+                isWrong: false,
+                cropImageFileName: cropFileName
+            )
         }
         items[i].questions.append(contentsOf: newQuestions)
         save()
@@ -159,13 +173,67 @@ final class ScanStore: ObservableObject {
         return try? imageURL(fileName: name)
     }
 
-    private func dataURL() throws -> URL {
-        let dir = try appSupportDir()
+    /// 根据文件名获取图片 URL（用于切图等）
+    func imageURL(fileName: String) throws -> URL {
+        let dir = try scansDir()
         return dir.appendingPathComponent(fileName, isDirectory: false)
     }
 
-    private func imageURL(fileName: String) throws -> URL {
-        let dir = try scansDir()
+    /// 根据 bbox 从图片中切出题目横条（宽度=试卷宽度，高度=题目高度上下各扩充50%），返回保存的文件名；若无 bbox 则返回 nil
+    private func cropQuestionImage(from image: UIImage, bbox: BBox?, index: Int) -> String? {
+        guard let bbox = bbox else { return nil }
+        
+        // 先校正图片方向，确保 cgImage 的宽高和显示方向一致
+        let normalizedImage = normalizeImageOrientation(image)
+        guard let cgImage = normalizedImage.cgImage else { return nil }
+
+        let imageWidth = CGFloat(cgImage.width)
+        let imageHeight = CGFloat(cgImage.height)
+
+        // 归一化坐标转像素坐标
+        let bboxY = CGFloat(bbox.y) * imageHeight
+        let bboxHeight = CGFloat(bbox.height) * imageHeight
+
+        // 宽度：整个试卷宽度（不裁剪左右）
+        let x: CGFloat = 0
+        let width = imageWidth
+
+        // 高度：题目高度上下各扩充 50%
+        let expandHeight = bboxHeight * 0.5
+        let y = max(0, bboxY - expandHeight)
+        var height = bboxHeight + expandHeight * 2
+        
+        // 确保不超出图片边界
+        if y + height > imageHeight {
+            height = imageHeight - y
+        }
+
+        let cropRect = CGRect(x: x, y: y, width: width, height: height)
+        guard let croppedCGImage = cgImage.cropping(to: cropRect) else { return nil }
+        let croppedImage = UIImage(cgImage: croppedCGImage)
+
+        guard let data = croppedImage.jpegData(compressionQuality: 0.85) else { return nil }
+        let fileName = "crop-\(UUID().uuidString).jpg"
+        if let url = try? imageURL(fileName: fileName) {
+            try? data.write(to: url, options: [.atomic])
+        }
+        return fileName
+    }
+    
+    /// 校正图片方向，返回正向的图片
+    private func normalizeImageOrientation(_ image: UIImage) -> UIImage {
+        guard image.imageOrientation != .up else { return image }
+        
+        UIGraphicsBeginImageContextWithOptions(image.size, false, image.scale)
+        image.draw(in: CGRect(origin: .zero, size: image.size))
+        let normalizedImage = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return normalizedImage ?? image
+    }
+
+    private func dataURL() throws -> URL {
+        let dir = try appSupportDir()
         return dir.appendingPathComponent(fileName, isDirectory: false)
     }
 
@@ -179,7 +247,7 @@ final class ScanStore: ObservableObject {
         return dir
     }
 
-    private func scansDir() throws -> URL {
+    func scansDir() throws -> URL {
         let fm = FileManager.default
         let docs = try fm.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
         let dir = docs.appendingPathComponent("camit_scans", isDirectory: true)
