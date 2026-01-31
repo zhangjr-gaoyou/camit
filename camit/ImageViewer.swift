@@ -3,6 +3,8 @@ import UIKit
 
 struct ImageViewer: View {
     let image: UIImage
+    /// 为 false 时仅展示图片，不支持缩放和拖动（用于试卷多图左右滑动查看）。
+    var allowZoomAndPan: Bool = true
 
     @Environment(\.dismiss) private var dismiss
     @State private var scale: CGFloat = 1.0
@@ -16,16 +18,20 @@ struct ImageViewer: View {
 
             GeometryReader { proxy in
                 let size = proxy.size
-
-                Image(uiImage: image)
+                let imageContent = Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
                     .frame(width: size.width, height: size.height)
-                    .scaleEffect(scale)
-                    .offset(offset)
-                    .gesture(zoomAndPanGesture)
+                    .scaleEffect(allowZoomAndPan ? scale : 1.0)
+                    .offset(allowZoomAndPan ? offset : .zero)
                     .animation(.spring(response: 0.25, dampingFraction: 0.9), value: scale)
                     .animation(.spring(response: 0.25, dampingFraction: 0.9), value: offset)
+
+                if allowZoomAndPan {
+                    imageContent.gesture(zoomAndPanGesture)
+                } else {
+                    imageContent
+                }
             }
 
             Button {

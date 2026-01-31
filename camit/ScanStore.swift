@@ -46,7 +46,7 @@ final class ScanStore: ObservableObject {
             createdAt: now,
             grade: grade,
             subject: subject,
-            imageFileName: imageFileName,
+            imageFileNames: [imageFileName],
             questions: questions,
             isHomeworkOrExam: true,
             isArchived: false,
@@ -73,11 +73,32 @@ final class ScanStore: ObservableObject {
 
     func delete(scanID: UUID) {
         guard let i = items.firstIndex(where: { $0.id == scanID }) else { return }
-        if let name = items[i].imageFileName,
-           let url = try? imageURL(fileName: name) {
-            try? FileManager.default.removeItem(at: url)
+        for name in items[i].imageFileNames {
+            if let url = try? imageURL(fileName: name) {
+                try? FileManager.default.removeItem(at: url)
+            }
         }
         items.remove(at: i)
+        save()
+    }
+
+    /// Add another image to an existing paper; run VL analysis and merge extracted questions.
+    func addImage(scanID: UUID, image: UIImage, config: BailianConfig) async throws {
+        guard let data = image.jpegData(compressionQuality: 0.85) else { return }
+        guard let i = items.firstIndex(where: { $0.id == scanID }) else { return }
+
+        let fileName = "scan-\(UUID().uuidString).jpg"
+        if let url = try? imageURL(fileName: fileName) {
+            try? data.write(to: url, options: [.atomic])
+        }
+        items[i].imageFileNames.append(fileName)
+
+        let result = try await BailianClient().analyzePaper(imageJPEGData: data, config: config)
+        let startIndex = items[i].questions.count
+        let newQuestions: [PaperQuestion] = result.normalizedItems.enumerated().map { idx, item in
+            PaperQuestion(index: startIndex + idx + 1, kind: item.type, text: item.content, isWrong: false)
+        }
+        items[i].questions.append(contentsOf: newQuestions)
         save()
     }
 
@@ -132,8 +153,9 @@ final class ScanStore: ObservableObject {
         }
     }
 
-    func imageURL(for item: ScanItem) -> URL? {
-        guard let name = item.imageFileName else { return nil }
+    func imageURL(for item: ScanItem, index: Int = 0) -> URL? {
+        guard index >= 0, index < item.imageFileNames.count else { return nil }
+        let name = item.imageFileNames[index]
         return try? imageURL(fileName: name)
     }
 
@@ -170,10 +192,10 @@ final class ScanStore: ObservableObject {
     private func seed() {
         let now = Date()
         items = [
-            ScanItem(title: "数学单元测验", createdAt: now, grade: .primary5, subject: .math, imageFileName: nil, questions: []),
-            ScanItem(title: "英语阅读测试", createdAt: now.addingTimeInterval(-2 * 3600), grade: .primary6, subject: .english, imageFileName: nil, questions: []),
-            ScanItem(title: "物理期中试卷", createdAt: now.addingTimeInterval(-8 * 24 * 3600), grade: .junior2, subject: .physics, imageFileName: nil, questions: []),
-            ScanItem(title: "化学习题作业", createdAt: now.addingTimeInterval(-9 * 24 * 3600), grade: .junior3, subject: .chemistry, imageFileName: nil, questions: []),
+            ScanItem(title: "数学单元测验", createdAt: now, grade: .primary5, subject: .math, imageFileNames: [], questions: []),
+            ScanItem(title: "英语阅读测试", createdAt: now.addingTimeInterval(-2 * 3600), grade: .primary6, subject: .english, imageFileNames: [], questions: []),
+            ScanItem(title: "物理期中试卷", createdAt: now.addingTimeInterval(-8 * 24 * 3600), grade: .junior2, subject: .physics, imageFileNames: [], questions: []),
+            ScanItem(title: "化学习题作业", createdAt: now.addingTimeInterval(-9 * 24 * 3600), grade: .junior3, subject: .chemistry, imageFileNames: [], questions: []),
         ]
         save()
     }

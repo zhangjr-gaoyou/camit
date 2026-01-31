@@ -49,8 +49,11 @@ struct ScanItem: Identifiable, Codable, Equatable {
     var createdAt: Date
     var grade: Grade
     var subject: Subject
-    /// Local file name in Documents/camit_scans/
-    var imageFileName: String?
+    /// Local file names in Documents/camit_scans/ (one paper can have multiple images)
+    var imageFileNames: [String] = []
+
+    /// First image file name (convenience / backward compat).
+    var imageFileName: String? { imageFileNames.first }
 
     /// Extracted questions from the paper/homework image.
     var questions: [PaperQuestion] = []
@@ -65,7 +68,7 @@ struct ScanItem: Identifiable, Codable, Equatable {
     var score: Int? = nil
 
     enum CodingKeys: String, CodingKey {
-        case id, title, createdAt, grade, subject, imageFileName
+        case id, title, createdAt, grade, subject, imageFileName, imageFileNames
         case questions, isHomeworkOrExam, score
     }
 
@@ -75,7 +78,8 @@ struct ScanItem: Identifiable, Codable, Equatable {
         createdAt: Date,
         grade: Grade,
         subject: Subject,
-        imageFileName: String?,
+        imageFileName: String? = nil,
+        imageFileNames: [String]? = nil,
         questions: [PaperQuestion] = [],
         isHomeworkOrExam: Bool = true,
         isArchived: Bool = false,
@@ -86,7 +90,13 @@ struct ScanItem: Identifiable, Codable, Equatable {
         self.createdAt = createdAt
         self.grade = grade
         self.subject = subject
-        self.imageFileName = imageFileName
+        if let names = imageFileNames {
+            self.imageFileNames = names
+        } else if let one = imageFileName {
+            self.imageFileNames = [one]
+        } else {
+            self.imageFileNames = []
+        }
         self.questions = questions
         self.isHomeworkOrExam = isHomeworkOrExam
         self.isArchived = isArchived
@@ -100,11 +110,30 @@ struct ScanItem: Identifiable, Codable, Equatable {
         createdAt = try c.decode(Date.self, forKey: .createdAt)
         grade = try c.decode(Grade.self, forKey: .grade)
         subject = try c.decode(Subject.self, forKey: .subject)
-        imageFileName = try c.decodeIfPresent(String.self, forKey: .imageFileName)
+        if let names = try c.decodeIfPresent([String].self, forKey: .imageFileNames) {
+            imageFileNames = names
+        } else if let one = try c.decodeIfPresent(String.self, forKey: .imageFileName) {
+            imageFileNames = [one]
+        } else {
+            imageFileNames = []
+        }
         questions = try c.decodeIfPresent([PaperQuestion].self, forKey: .questions) ?? []
         isHomeworkOrExam = try c.decodeIfPresent(Bool.self, forKey: .isHomeworkOrExam) ?? true
         isArchived = false
         score = try c.decodeIfPresent(Int.self, forKey: .score)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encode(grade, forKey: .grade)
+        try c.encode(subject, forKey: .subject)
+        try c.encode(imageFileNames, forKey: .imageFileNames)
+        try c.encode(questions, forKey: .questions)
+        try c.encode(isHomeworkOrExam, forKey: .isHomeworkOrExam)
+        try c.encode(score, forKey: .score)
     }
 }
 

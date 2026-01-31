@@ -20,12 +20,14 @@ struct HomeView: View {
     @State private var isShowingActions: Bool = false
 
     @State private var editingItem: ScanItem?
+    @State private var addImageForItem: ScanItem?
+    @State private var isAddingImageToPaper: Bool = false
 
     private var baseItems: [ScanItem] {
         store.items.filter {
             !$0.isArchived &&
             $0.isHomeworkOrExam &&
-            $0.imageFileName != nil
+            !$0.imageFileNames.isEmpty
         }
     }
 
@@ -83,11 +85,25 @@ struct HomeView: View {
 #endif
         }
         .sheet(item: $viewerItem) { item in
-            if let url = store.imageURL(for: item),
-               let ui = UIImage(contentsOfFile: url.path) {
-                ImageViewer(image: ui)
+            if item.imageFileNames.isEmpty {
+                Text("无图片")
+            } else if item.imageFileNames.count == 1,
+                      let url = store.imageURL(for: item, index: 0),
+                      let ui = UIImage(contentsOfFile: url.path) {
+                ImageViewer(image: ui, allowZoomAndPan: false)
             } else {
-                Text("无法加载试卷图片")
+                TabView {
+                    ForEach(0..<item.imageFileNames.count, id: \.self) { index in
+                        if let url = store.imageURL(for: item, index: index),
+                           let ui = UIImage(contentsOfFile: url.path) {
+                            ImageViewer(image: ui, allowZoomAndPan: false)
+                        } else {
+                            Color.gray.opacity(0.3)
+                        }
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .automatic))
+                .ignoresSafeArea()
             }
         }
         .confirmationDialog("试卷操作", isPresented: $isShowingActions, titleVisibility: .visible) {
@@ -115,6 +131,35 @@ struct HomeView: View {
                     subject: subject,
                     score: score
                 )
+            }
+        }
+        .sheet(item: $addImageForItem) { item in
+            CameraSheetView(
+                onImagePicked: { image in
+                    guard let image else { return }
+                    addImageForItem = nil
+                    isAddingImageToPaper = true
+                    Task {
+                        defer { isAddingImageToPaper = false }
+                        try? await store.addImage(scanID: item.id, image: image, config: settings.bailianConfig)
+                    }
+                },
+                onDismiss: { addImageForItem = nil }
+            )
+        }
+        .overlay {
+            if isAddingImageToPaper {
+                ZStack {
+                    Color.black.opacity(0.25).ignoresSafeArea()
+                    VStack(spacing: 12) {
+                        ProgressView()
+                        Text("解析中…")
+                            .font(.subheadline.weight(.semibold))
+                    }
+                    .padding(18)
+                    .background(.ultraThinMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
             }
         }
         .onChange(of: store.items) { _ in
@@ -228,7 +273,8 @@ struct HomeView: View {
                         item: item,
                         onTapImage: { handleTap(on: item) },
                         onLongPress: { handleLongPress(on: item) },
-                        onTapTitle: { handleEditMeta(on: item) }
+                        onTapTitle: { handleEditMeta(on: item) },
+                        onAddImage: { addImageForItem = item }
                     )
                 }
             }
@@ -290,22 +336,58 @@ private struct ScanCardView: View {
     let onTapImage: () -> Void
     let onLongPress: () -> Void
     let onTapTitle: () -> Void
+    let onAddImage: () -> Void
+
+    private let cardHeight: CGFloat = 160
+    private let stackOffset: CGFloat = 6
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ZStack(alignment: .topTrailing) {
-                cardImage
-                    .frame(height: 160)
+            ZStack(alignment: .topLeading) {
+                cardImageStack
+                    .frame(height: cardHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                 Text(item.subject.rawValue)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(hex: item.subject.badgeColorHex))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color(hex: item.subject.badgeColorHex))
+                    .background(Color.white.opacity(0.92))
                     .clipShape(Capsule())
                     .padding(10)
+
+                if item.imageFileNames.count > 1 {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            Image(systemName: "doc.on.doc")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(8)
+                                .background(Color.black.opacity(0.5))
+                                .clipShape(Circle())
+                                .padding(10)
+                        }
+                        Spacer()
+                    }
+                    .frame(height: cardHeight)
+                }
+
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: onAddImage) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(.white)
+                                .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+                        }
+                        .padding(8)
+                    }
+                }
+                .frame(height: cardHeight)
             }
 
             Text(item.title)
@@ -322,24 +404,53 @@ private struct ScanCardView: View {
     }
 
     @ViewBuilder
-    private var cardImage: some View {
-        if let url = store.imageURL(for: item),
+    private var cardImageStack: some View {
+        if item.imageFileNames.isEmpty {
+            ZStack {
+                placeholderGradient
+                Image(systemName: "photo")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary.opacity(0.6))
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTapImage)
+        } else {
+            ZStack {
+                ForEach(Array(item.imageFileNames.enumerated().reversed()), id: \.offset) { idx, _ in
+                    singleCardImage(index: idx)
+                        .offset(
+                            x: stackOffset * CGFloat(item.imageFileNames.count - 1 - idx),
+                            y: stackOffset * CGFloat(item.imageFileNames.count - 1 - idx)
+                        )
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture(perform: onTapImage)
+        }
+    }
+
+    @ViewBuilder
+    private func singleCardImage(index: Int) -> some View {
+        if let url = store.imageURL(for: item, index: index),
            let ui = UIImage(contentsOfFile: url.path) {
             Image(uiImage: ui)
                 .resizable()
                 .scaledToFill()
-                .onTapGesture(perform: onTapImage)
         } else {
-            LinearGradient(
-                colors: [
-                    Color.secondary.opacity(0.25),
-                    Color.secondary.opacity(0.12),
-                    Color.secondary.opacity(0.20),
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            placeholderGradient
         }
+    }
+
+    private var placeholderGradient: some View {
+        LinearGradient(
+            colors: [
+                Color.secondary.opacity(0.25),
+                Color.secondary.opacity(0.12),
+                Color.secondary.opacity(0.20),
+            ],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
     private func relativeTime(_ date: Date) -> String {

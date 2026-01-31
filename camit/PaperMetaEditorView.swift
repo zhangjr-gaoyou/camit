@@ -77,7 +77,7 @@ struct PaperMetaEditorView: View {
         createdAt: .now,
         grade: .primary5,
         subject: .math,
-        imageFileName: nil
+        imageFileNames: []
     )
     PaperMetaEditorView(item: sample) { _, _, _, _ in }
 }

@@ -23,14 +23,13 @@ struct MainTabView: View {
             bottomBar
         }
         .sheet(isPresented: $isShowingCamera) {
-            CameraPicker(
+            CameraSheetView(
                 onImagePicked: { image in
                     guard let image else { return }
                     Task { await analyzeAndSave(image: image) }
                 },
                 onDismiss: { isShowingCamera = false }
             )
-            .ignoresSafeArea()
         }
         .overlay {
             if isAnalyzing {
@@ -162,6 +161,81 @@ struct MainTabView: View {
         } catch {
             alertMessage = error.localizedDescription
         }
+    }
+}
+
+// MARK: - 拍照窗口：取消 | 拍照 | 从相册选择（无镜头翻转）（可复用：首页「+」加图也用此窗口）
+struct CameraSheetView: View {
+    @State private var triggerHolder = CaptureTriggerHolder()
+    @State private var showAlbum = false
+    var onImagePicked: (UIImage?) -> Void
+    var onDismiss: () -> Void
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            CustomCameraView(
+                onImagePicked: onImagePicked,
+                onDismiss: onDismiss,
+                triggerHolder: triggerHolder
+            )
+            .ignoresSafeArea()
+
+            bottomBar
+        }
+        .fullScreenCover(isPresented: $showAlbum) {
+            PhotoLibraryPicker(
+                onImagePicked: { image in
+                    if let image { onImagePicked(image) }
+                    showAlbum = false
+                    onDismiss()
+                },
+                onDismiss: { showAlbum = false }
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    private var bottomBar: some View {
+        HStack(alignment: .center, spacing: 0) {
+            Button("取消") { onDismiss() }
+                .foregroundStyle(.white)
+                .font(.body)
+
+            Spacer()
+
+            VStack(spacing: 6) {
+                Text("PHOTO")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.yellow)
+                Button {
+                    triggerHolder.trigger?()
+                } label: {
+                    ZStack {
+                        Circle()
+                            .fill(.white)
+                            .frame(width: 72, height: 72)
+                        Circle()
+                            .strokeBorder(.black.opacity(0.3), lineWidth: 2)
+                            .frame(width: 72, height: 72)
+                    }
+                }
+                .accessibilityLabel("拍照")
+            }
+
+            Spacer()
+
+            Button {
+                showAlbum = true
+            } label: {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: 28))
+                    .foregroundStyle(.white)
+            }
+            .accessibilityLabel("从相册选择")
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 20)
+        .background(Color.black.opacity(0.35))
     }
 }
 
