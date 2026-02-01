@@ -17,6 +17,7 @@ struct SettingsView: View {
     @State private var geminiApiKey: String = ""
     @State private var geminiModel: String = ""
     @State private var geminiVLModel: String = ""
+    @State private var geminiBaseURL: String = ""
     @State private var alertMessage: String?
     @State private var showHelpSheet: Bool = false
 
@@ -82,6 +83,7 @@ struct SettingsView: View {
                 geminiApiKey = settings.geminiConfig.apiKey
                 geminiModel = settings.geminiConfig.model
                 geminiVLModel = settings.geminiConfig.vlModel
+                geminiBaseURL = settings.geminiConfig.baseURL
             }
             .alert(L10n.alertTitle, isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })) {
                 Button(L10n.alertOK, role: .cancel) {}
@@ -152,6 +154,10 @@ struct SettingsView: View {
                     TextField("", text: $geminiVLModel)
                         .modifier(PlatformTextInputTraits())
                 }
+                labeledField(L10n.settingsLabelBaseURL) {
+                    TextField("", text: $geminiBaseURL)
+                        .modifier(PlatformTextInputTraits())
+                }
             }
         }
     }
@@ -182,6 +188,8 @@ struct SettingsView: View {
         settings.geminiConfig.apiKey = geminiApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
         settings.geminiConfig.model = geminiModel.trimmingCharacters(in: .whitespacesAndNewlines)
         settings.geminiConfig.vlModel = geminiVLModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        let gURL = geminiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        settings.geminiConfig.baseURL = gURL.isEmpty ? GeminiConfig().baseURL : gURL
 
         do {
             try settings.save()

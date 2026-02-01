@@ -26,7 +26,7 @@ enum L10n {
     static var settingsLabelVLModel: String { isChinese ? "VL 模型（例如：qwen-vl-plus）" : "VL model (e.g. qwen-vl-plus)" }
     static var settingsLabelBaseURL: String { isChinese ? "Base URL" : "Base URL" }
     static var settingsLabelOpenAIModel: String { isChinese ? "模型（例如：gpt-4o-mini）" : "Model (e.g. gpt-4o-mini)" }
-    static var settingsLabelGeminiModel: String { isChinese ? "模型（例如：gemini-1.5-flash）" : "Model (e.g. gemini-1.5-flash)" }
+    static var settingsLabelGeminiModel: String { isChinese ? "模型（例如：gemini-2.5-flash）" : "Model (e.g. gemini-2.5-flash)" }
 
     // MARK: - Help / Registration
     static var settingsHelpTitle: String { isChinese ? "API Key 注册申请说明" : "API Key Registration" }

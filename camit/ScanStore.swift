@@ -179,7 +179,7 @@ final class ScanStore: ObservableObject {
         return dir.appendingPathComponent(fileName, isDirectory: false)
     }
 
-    /// 根据 bbox 从图片中切出题目横条（宽度=试卷宽度，高度=题目高度上下各扩充50%），返回保存的文件名；若无 bbox 则返回 nil
+    /// 根据 bbox 从图片中切出题目横条（宽度=试卷宽度，高度=题目高度；上部向上扩充100%，下部向下扩充50%），返回保存的文件名；若无 bbox 则返回 nil
     private func cropQuestionImage(from image: UIImage, bbox: BBox?, index: Int) -> String? {
         guard let bbox = bbox else { return nil }
         
@@ -198,10 +198,11 @@ final class ScanStore: ObservableObject {
         let x: CGFloat = 0
         let width = imageWidth
 
-        // 高度：题目高度上下各扩充 50%
-        let expandHeight = bboxHeight * 0.5
-        let y = max(0, bboxY - expandHeight)
-        var height = bboxHeight + expandHeight * 2
+        // 高度：上部向上扩充 100%（题目高度的 1 倍），下部向下扩充 50%
+        let expandHeightTop = bboxHeight * 1.0
+        let expandHeightBottom = bboxHeight * 0.5
+        let y = max(0, bboxY - expandHeightTop)
+        var height = bboxHeight + expandHeightTop + expandHeightBottom
         
         // 确保不超出图片边界
         if y + height > imageHeight {

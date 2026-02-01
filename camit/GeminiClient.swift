@@ -48,13 +48,14 @@ struct GeminiClient {
 
         let systemPrompt = paperAnalysisSystemPrompt()
         let userText = "请分析这张图片。"
+        // Gemini v1 不支持 systemInstruction，将系统提示词合并到用户消息
+        let combinedPrompt = "\(systemPrompt)\n\n\(userText)"
 
         let body: [String: Any] = [
-            "systemInstruction": ["parts": [["text": systemPrompt]]],
             "contents": [
                 [
                     "parts": [
-                        ["text": userText],
+                        ["text": combinedPrompt],
                         [
                             "inline_data": [
                                 "mime_type": "image/jpeg",

@@ -50,9 +50,9 @@ struct OpenAIConfig: Codable, Equatable, LLMConfigProtocol {
 
 struct GeminiConfig: Codable, Equatable, LLMConfigProtocol {
     var apiKey: String = ""
-    var model: String = "gemini-1.5-flash"
-    var vlModel: String = "gemini-1.5-flash"
-    var baseURL: String = "https://generativelanguage.googleapis.com/v1beta"
+    var model: String = "gemini-2.5-flash"
+    var vlModel: String = "gemini-2.5-flash"
+    var baseURL: String = "https://generativelanguage.googleapis.com/v1"
 
     var effectiveVLModel: String { vlModel }
     var effectiveTextModel: String { model }
