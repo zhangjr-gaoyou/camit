@@ -33,8 +33,9 @@ final class ScanStore: ObservableObject {
         let subject = Subject(rawValue: result.subject) ?? .other
         let grade = Grade(rawValue: result.grade) ?? .other
 
-        let questions: [PaperQuestion] = result.normalizedItems.enumerated().map { idx, item in
-            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx)
+        let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
+        let questions: [PaperQuestion] = itemsToUse.enumerated().map { idx, item in
+            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx, provider: provider)
             return PaperQuestion(
                 index: idx + 1,
                 kind: item.type,
@@ -102,8 +103,9 @@ final class ScanStore: ObservableObject {
 
         let result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config)
         let startIndex = items[i].questions.count
-        let newQuestions: [PaperQuestion] = result.normalizedItems.enumerated().map { idx, item in
-            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: startIndex + idx)
+        let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
+        let newQuestions: [PaperQuestion] = itemsToUse.enumerated().map { idx, item in
+            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: startIndex + idx, provider: provider)
             return PaperQuestion(
                 index: startIndex + idx + 1,
                 kind: item.type,
@@ -179,8 +181,65 @@ final class ScanStore: ObservableObject {
         return dir.appendingPathComponent(fileName, isDirectory: false)
     }
 
-    /// 根据 bbox 从图片中切出题目横条（宽度=试卷宽度，高度=题目高度；上部向上扩充100%，下部向下扩充50%），返回保存的文件名；若无 bbox 则返回 nil
-    private func cropQuestionImage(from image: UIImage, bbox: BBox?, index: Int) -> String? {
+    /// 按供应商规范化项列表：Bailian 原样返回；Gemini/OpenAI 统一 type 为「板块分类/题干/题目」并合并题干+题目为一条
+    private func normalizeItemsForProvider(
+        _ provider: LLMProvider,
+        _ items: [(type: String, content: String, bbox: BBox?)]
+    ) -> [(type: String, content: String, bbox: BBox?)] {
+        switch provider {
+        case .bailian:
+            return items
+        case .gemini, .openai:
+            return normalizeAndMergeStemItem(items: items)
+        }
+    }
+
+    /// 统一 type 为「板块分类/题干/题目」，并将连续的 题干+题目 合并为一条 题目（同卡展示）
+    private func normalizeAndMergeStemItem(
+        items: [(type: String, content: String, bbox: BBox?)]
+    ) -> [(type: String, content: String, bbox: BBox?)] {
+        let normalized: [(type: String, content: String, bbox: BBox?)] = items.map { item in
+            let t = normalizeItemType(item.type)
+            return (t, item.content, item.bbox)
+        }
+        var result: [(type: String, content: String, bbox: BBox?)] = []
+        var i = 0
+        while i < normalized.count {
+            let current = normalized[i]
+            if current.type == "题干", i + 1 < normalized.count, normalized[i + 1].type == "题目" {
+                let next = normalized[i + 1]
+                let mergedContent = current.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    + "\n\n"
+                    + next.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                let mergedBbox = unionBBox(current.bbox, next.bbox)
+                result.append(("题目", mergedContent, mergedBbox))
+                i += 2
+                continue
+            }
+            result.append(current)
+            i += 1
+        }
+        return result
+    }
+
+    private func normalizeItemType(_ type: String) -> String {
+        let t = type.trimmingCharacters(in: .whitespacesAndNewlines)
+        if t == "板块分类" || t.lowercased().contains("section") || (t.contains("分类") && !t.contains("题干")) { return "板块分类" }
+        if t == "题干" || t.lowercased().contains("stem") || t == "问句" { return "题干" }
+        if t == "题目" || t.lowercased().contains("item") { return "题目" }
+        return t.isEmpty ? "题目" : "题目"
+    }
+
+    private func unionBBox(_ a: BBox?, _ b: BBox?) -> BBox? {
+        guard let a = a else { return b }
+        guard let b = b else { return a }
+        let minY = min(a.y, b.y)
+        let maxBottom = max(a.y + a.height, b.y + b.height)
+        return BBox(x: 0, y: minY, width: 1, height: maxBottom - minY)
+    }
+
+    /// 根据 bbox 从图片中切出题目横条；扩充比例按供应商区分（Bailian 保持原逻辑，Gemini/OpenAI 上部多扩以弥补识别框偏小）
+    private func cropQuestionImage(from image: UIImage, bbox: BBox?, index: Int, provider: LLMProvider) -> String? {
         guard let bbox = bbox else { return nil }
         
         // 先校正图片方向，确保 cgImage 的宽高和显示方向一致
@@ -198,9 +257,17 @@ final class ScanStore: ObservableObject {
         let x: CGFloat = 0
         let width = imageWidth
 
-        // 高度：上部向上扩充 100%（题目高度的 1 倍），下部向下扩充 50%
-        let expandHeightTop = bboxHeight * 1.0
-        let expandHeightBottom = bboxHeight * 0.5
+        // 高度：按供应商区分扩充比例（Bailian 正确；Gemini/OpenAI 上部多扩 50% 以弥补 bbox 偏小）
+        let (expandTopRatio, expandBottomRatio): (CGFloat, CGFloat) = {
+            switch provider {
+            case .bailian:
+                return (1.0, 0.5)   // 上部 100%，下部 50%
+            case .gemini, .openai:
+                return (1.5, 0.5)   // 上部 150%，下部 50%
+            }
+        }()
+        let expandHeightTop = bboxHeight * expandTopRatio
+        let expandHeightBottom = bboxHeight * expandBottomRatio
         let y = max(0, bboxY - expandHeightTop)
         var height = bboxHeight + expandHeightTop + expandHeightBottom
         
