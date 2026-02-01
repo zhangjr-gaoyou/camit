@@ -16,9 +16,9 @@ final class ScanStore: ObservableObject {
     }
 
     /// Analyze the captured image with VL model; if it's a paper/homework, persist it and extracted questions.
-    func analyzeAndAddScan(image: UIImage, config: BailianConfig) async throws -> ScanItem? {
+    func analyzeAndAddScan(image: UIImage, provider: LLMProvider, config: any LLMConfigProtocol) async throws -> ScanItem? {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return nil }
-        let result = try await BailianClient().analyzePaper(imageJPEGData: data, config: config)
+        let result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config)
 
         guard result.is_homework_or_exam else {
             return nil
@@ -90,7 +90,7 @@ final class ScanStore: ObservableObject {
     }
 
     /// Add another image to an existing paper; run VL analysis and merge extracted questions.
-    func addImage(scanID: UUID, image: UIImage, config: BailianConfig) async throws {
+    func addImage(scanID: UUID, image: UIImage, provider: LLMProvider, config: any LLMConfigProtocol) async throws {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return }
         guard let i = items.firstIndex(where: { $0.id == scanID }) else { return }
 
@@ -100,7 +100,7 @@ final class ScanStore: ObservableObject {
         }
         items[i].imageFileNames.append(fileName)
 
-        let result = try await BailianClient().analyzePaper(imageJPEGData: data, config: config)
+        let result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config)
         let startIndex = items[i].questions.count
         let newQuestions: [PaperQuestion] = result.normalizedItems.enumerated().map { idx, item in
             let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: startIndex + idx)

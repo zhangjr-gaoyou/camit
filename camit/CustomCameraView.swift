@@ -163,7 +163,7 @@ final class CustomCameraViewController: UIViewController {
         
         // 添加提示文字
         let label = UILabel()
-        label.text = "将试卷对准框内"
+        label.text = L10n.cameraGuide
         label.textColor = .white
         label.font = .systemFont(ofSize: 14, weight: .medium)
         label.textAlignment = .center

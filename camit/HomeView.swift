@@ -69,8 +69,8 @@ struct HomeView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    section(title: "最近添加", items: recentItems)
-                    section(title: "上周", items: lastWeekItems)
+                    section(title: L10n.homeRecent, items: recentItems)
+                    section(title: L10n.homeLastWeek, items: lastWeekItems)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 24)
@@ -86,7 +86,7 @@ struct HomeView: View {
         }
         .sheet(item: $viewerItem) { item in
             if item.imageFileNames.isEmpty {
-                Text("无图片")
+                Text(L10n.noImage)
             } else if item.imageFileNames.count == 1,
                       let url = store.imageURL(for: item, index: 0),
                       let ui = UIImage(contentsOfFile: url.path) {
@@ -106,21 +106,21 @@ struct HomeView: View {
                 .ignoresSafeArea()
             }
         }
-        .confirmationDialog("试卷操作", isPresented: $isShowingActions, titleVisibility: .visible) {
+        .confirmationDialog(L10n.paperActions, isPresented: $isShowingActions, titleVisibility: .visible) {
             if let target = actionTarget {
-                Button("归档") {
+                Button(L10n.archiveAction) {
                     store.archive(scanID: target.id)
                 }
-                Button("删除", role: .destructive) {
+                Button(L10n.deleteAction, role: .destructive) {
                     store.delete(scanID: target.id)
                 }
             }
-            Button("取消", role: .cancel) {}
+            Button(L10n.cancel, role: .cancel) {}
         }
-        .alert("通知", isPresented: $isShowingNotifications) {
-            Button("确定", role: .cancel) {}
+        .alert(L10n.notificationTitle, isPresented: $isShowingNotifications) {
+            Button(L10n.alertOK, role: .cancel) {}
         } message: {
-            Text("暂无新通知。")
+            Text(L10n.noNotifications)
         }
         .sheet(item: $editingItem) { item in
             PaperMetaEditorView(item: item) { title, grade, subject, score in
@@ -136,12 +136,12 @@ struct HomeView: View {
         .sheet(item: $addImageForItem) { item in
             CameraSheetView(
                 onImagePicked: { image in
-                    guard let image else { return }
+                    guard let image, let cfg = settings.effectiveConfig() else { return }
                     addImageForItem = nil
                     isAddingImageToPaper = true
                     Task {
                         defer { isAddingImageToPaper = false }
-                        try? await store.addImage(scanID: item.id, image: image, config: settings.bailianConfig)
+                        try? await store.addImage(scanID: item.id, image: image, provider: settings.provider, config: cfg)
                     }
                 },
                 onDismiss: { addImageForItem = nil }
@@ -153,7 +153,7 @@ struct HomeView: View {
                     Color.black.opacity(0.25).ignoresSafeArea()
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("解析中…")
+                        Text(L10n.parsing)
                             .font(.subheadline.weight(.semibold))
                     }
                     .padding(18)
@@ -175,15 +175,12 @@ struct HomeView: View {
 
     private var header: some View {
         HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.blue)
+            Image("AppLogo")
+                .resizable()
+                .scaledToFit()
                 .frame(width: 40, height: 40)
-                .overlay(
-                    Image(systemName: "book.pages")
-                        .foregroundStyle(.white)
-                )
 
-            Text("试卷管家")
+            Text(L10n.appTitle)
                 .font(.title3.weight(.semibold))
 
             Spacer()
@@ -203,7 +200,7 @@ struct HomeView: View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
-            TextField("搜索试卷、科目、年级…", text: $searchText)
+            TextField(L10n.searchPlaceholder, text: $searchText)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
         }
@@ -224,7 +221,7 @@ struct HomeView: View {
                     selectedScore = .all
                 }
             } label: {
-                Text("全部")
+                Text(L10n.homeFilterAll)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(isAllScanSelected ? .white : .primary)
                     .padding(.horizontal, 14)
@@ -234,21 +231,21 @@ struct HomeView: View {
             }
 
             Menu {
-                Button("全部") { selectedGrade = nil; isAllScanSelected = false }
+                Button(L10n.homeFilterAll) { selectedGrade = nil; isAllScanSelected = false }
                 ForEach(availableGrades, id: \.self) { g in
                     Button(g.rawValue) { selectedGrade = g; isAllScanSelected = false }
                 }
             } label: {
-                FilterChip(title: selectedGrade?.rawValue ?? "年级", showsChevron: true)
+                FilterChip(title: selectedGrade?.rawValue ?? L10n.filterGrade, showsChevron: true)
             }
 
             Menu {
-                Button("全部") { selectedSubject = nil; isAllScanSelected = false }
+                Button(L10n.homeFilterAll) { selectedSubject = nil; isAllScanSelected = false }
                 ForEach(availableSubjects, id: \.self) { s in
                     Button(s.rawValue) { selectedSubject = s; isAllScanSelected = false }
                 }
             } label: {
-                FilterChip(title: selectedSubject?.rawValue ?? "科目", showsChevron: true)
+                FilterChip(title: selectedSubject?.rawValue ?? L10n.filterSubject, showsChevron: true)
             }
 
             Menu {

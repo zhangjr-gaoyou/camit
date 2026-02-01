@@ -37,7 +37,7 @@ struct MainTabView: View {
                     Color.black.opacity(0.25).ignoresSafeArea()
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text("识别中…")
+                        Text(L10n.analyzing)
                             .font(.subheadline.weight(.semibold))
                     }
                     .padding(18)
@@ -47,8 +47,8 @@ struct MainTabView: View {
                 .transition(.opacity)
             }
         }
-        .alert("提示", isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })) {
-            Button("确定", role: .cancel) {}
+        .alert(L10n.alertTitle, isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })) {
+            Button(L10n.alertOK, role: .cancel) {}
         } message: {
             Text(alertMessage ?? "")
         }
@@ -61,7 +61,7 @@ struct MainTabView: View {
             HomeView(settings: settings)
                 .environmentObject(store)
         case .wrong:
-            WrongQuestionsView()
+            WrongQuestionsView(settings: settings)
                 .environmentObject(store)
         }
     }
@@ -69,7 +69,7 @@ struct MainTabView: View {
     private var bottomBar: some View {
         HStack(alignment: .center) {
             tabButton(
-                title: "试卷",
+                title: L10n.tabPapers,
                 systemName: "doc.text",
                 isSelected: selectedTab == .papers
             ) {
@@ -83,7 +83,7 @@ struct MainTabView: View {
             Spacer()
 
             tabButton(
-                title: "错题",
+                title: L10n.tabWrong,
                 systemName: "list.bullet.clipboard",
                 isSelected: selectedTab == .wrong
             ) {
@@ -129,7 +129,7 @@ struct MainTabView: View {
                         .foregroundStyle(.white)
                         .font(.system(size: 22, weight: .bold))
                 }
-                Text("拍照")
+                Text(L10n.tabCamera)
                     .font(.caption)
                     .foregroundStyle(Color.secondary)
             }
@@ -140,13 +140,13 @@ struct MainTabView: View {
 
     @MainActor
     private func analyzeAndSave(image: UIImage) async {
-        let cfg = settings.bailianConfig
+        guard let cfg = settings.effectiveConfig() else { return }
         if cfg.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            alertMessage = "请先在设置里填写百炼 API Key。"
+            alertMessage = L10n.settingsApiKeyRequired
             return
         }
-        if cfg.vlModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            alertMessage = "请先在设置里填写 VL 模型名称。"
+        if cfg.effectiveVLModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            alertMessage = L10n.settingsVLModelRequired
             return
         }
 
@@ -154,9 +154,9 @@ struct MainTabView: View {
         defer { isAnalyzing = false }
 
         do {
-            let item = try await store.analyzeAndAddScan(image: image, config: cfg)
+            let item = try await store.analyzeAndAddScan(image: image, provider: settings.provider, config: cfg)
             if item == nil {
-                alertMessage = "识别结果：该图片不是作业/试卷，未保存。"
+                alertMessage = L10n.notPaperMessage
             }
         } catch {
             alertMessage = error.localizedDescription
@@ -197,7 +197,7 @@ struct CameraSheetView: View {
 
     private var bottomBar: some View {
         HStack(alignment: .center, spacing: 0) {
-            Button("取消") { onDismiss() }
+            Button(L10n.cameraCancel) { onDismiss() }
                 .foregroundStyle(.white)
                 .font(.body)
 
@@ -231,7 +231,7 @@ struct CameraSheetView: View {
                     .font(.system(size: 28))
                     .foregroundStyle(.white)
             }
-            .accessibilityLabel("从相册选择")
+            .accessibilityLabel(L10n.cameraFromAlbum)
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 20)

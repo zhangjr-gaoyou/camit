@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct WrongQuestionsView: View {
+    @ObservedObject var settings: AppSettings
     @EnvironmentObject private var store: ScanStore
     @State private var showAllQuestions: Bool = false
     @State private var analyzingQuestionIDs: Set<UUID> = []
@@ -19,7 +20,7 @@ struct WrongQuestionsView: View {
                 } else {
                     List {
                         Section {
-                            Toggle("显示全部题目", isOn: $showAllQuestions)
+                            Toggle(L10n.wrongShowAll, isOn: $showAllQuestions)
                         }
 
                         ForEach(papersWithQuestions) { paper in
@@ -40,9 +41,9 @@ struct WrongQuestionsView: View {
                     .listStyle(.insetGrouped)
                 }
             }
-            .navigationTitle("错题")
-            .alert("提示", isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })) {
-                Button("确定", role: .cancel) {}
+            .navigationTitle(L10n.tabWrong)
+            .alert(L10n.alertTitle, isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })) {
+                Button(L10n.alertOK, role: .cancel) {}
             } message: {
                 Text(alertMessage ?? "")
             }
@@ -54,7 +55,7 @@ struct WrongQuestionsView: View {
                    let ui = UIImage(contentsOfFile: url.path) {
                     ImageViewer(image: ui, allowZoomAndPan: true)
                 } else {
-                    Text("无法加载切图")
+                    Text(L10n.wrongLoadCropFailed)
                 }
             }
         }
@@ -122,12 +123,12 @@ private struct ItemCard: View {
 
             if question.isQuestionItem {
                 if let answer = question.answer, !answer.isEmpty {
-                    Text("正确答案：\(answer)")
+                    Text("\(L10n.wrongCorrectAnswer)\(answer)")
                         .font(.subheadline.weight(.semibold))
                         .padding(.top, 10)
                 }
                 if let explanation = question.explanation, !explanation.isEmpty {
-                    Text("解析：\(explanation)")
+                    Text("\(L10n.wrongExplanation)\(explanation)")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(.top, 6)
@@ -137,11 +138,11 @@ private struct ItemCard: View {
                     if isAnalyzing {
                         ProgressView()
                             .controlSize(.small)
-                        Text("解析生成中…")
+                        Text(L10n.wrongParsing)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     } else {
-                        Button(question.answer == nil && question.explanation == nil ? "生成答案与解析" : "重新生成解析") {
+                        Button(question.answer == nil && question.explanation == nil ? L10n.wrongGenerateAnswer : L10n.wrongRegenerate) {
                             onAnalyze()
                         }
                         .font(.caption)
@@ -155,7 +156,7 @@ private struct ItemCard: View {
                                 .font(.system(size: 18, weight: .semibold))
                         }
                         .buttonStyle(.plain)
-                        .accessibilityLabel("显示题目切图")
+                        .accessibilityLabel(L10n.wrongShowCrop)
                     }
                     Button(action: onToggleWrong) {
                         Image(systemName: question.isWrong ? "xmark.circle.fill" : "circle")
@@ -163,7 +164,7 @@ private struct ItemCard: View {
                             .font(.system(size: 20, weight: .semibold))
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel(question.isWrong ? "取消错题" : "标记为错题")
+                    .accessibilityLabel(question.isWrong ? L10n.wrongUnmarkWrong : L10n.wrongMarkWrong)
                 }
                 .padding(.top, 10)
             }
@@ -181,9 +182,9 @@ private extension WrongQuestionsView {
             Image(systemName: "list.bullet.rectangle")
                 .font(.system(size: 42, weight: .semibold))
                 .foregroundStyle(.secondary)
-            Text("暂无题目")
+            Text(L10n.wrongEmptyTitle)
                 .font(.title3.weight(.semibold))
-            Text("拍照识别作业/试卷后，会在这里按试卷展示题目。\n默认只显示你标记为错题的题目，可通过开关查看全部。")
+            Text(L10n.wrongEmptyHint)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -200,7 +201,7 @@ private extension WrongQuestionsView {
             : paper.questions.filter { $0.isWrong }
 
         if questions.isEmpty {
-            Text("暂无错题")
+            Text(L10n.wrongNoCrop)
                 .foregroundStyle(.secondary)
         } else {
             let grouped = Dictionary(grouping: questions) { (q: PaperQuestion) in
@@ -233,20 +234,20 @@ private extension WrongQuestionsView {
 
     func analyzeQuestion(paper: ScanItem, question: PaperQuestion) {
         guard !analyzingQuestionIDs.contains(question.id) else { return }
+        guard let cfg = settings.effectiveConfig() else { return }
+        if cfg.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            alertMessage = L10n.settingsApiKeyRequired
+            return
+        }
         analyzingQuestionIDs.insert(question.id)
 
         Task {
             defer { analyzingQuestionIDs.remove(question.id) }
             do {
-                // Use the main text model with current bailian config.
-                let cfg = (try? BailianConfig.load()) ?? BailianConfig()
-                if cfg.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    alertMessage = "请先在设置中配置百炼 API Key。"
-                    return
-                }
-                let result = try await BailianClient().analyzeQuestion(
+                let result = try await LLMService.analyzeQuestion(
                     question: question.text,
                     subject: paper.subject,
+                    provider: settings.provider,
                     config: cfg
                 )
                 store.updateQuestionAnalysis(
@@ -264,7 +265,7 @@ private extension WrongQuestionsView {
 }
 
 #Preview {
-    WrongQuestionsView()
+    WrongQuestionsView(settings: AppSettings())
         .environmentObject(ScanStore())
 }
 
