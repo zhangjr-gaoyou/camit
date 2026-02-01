@@ -5,6 +5,9 @@ struct ImageViewer: View {
     let image: UIImage
     /// 为 false 时仅展示图片，不支持缩放和拖动（用于试卷多图左右滑动查看）。
     var allowZoomAndPan: Bool = true
+    /// 为 true 时在关闭按钮左侧显示「转向错题」按钮，点击后跳转到错题页该试卷
+    var showNavigateButton: Bool = false
+    var onNavigateToWrong: (() -> Void)? = nil
 
     @Environment(\.dismiss) private var dismiss
     @State private var scale: CGFloat = 1.0
@@ -34,13 +37,26 @@ struct ImageViewer: View {
                 }
             }
 
-            Button {
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-                    .padding()
+            HStack(spacing: 8) {
+                if showNavigateButton, let onNavigateToWrong {
+                    Button {
+                        onNavigateToWrong()
+                    } label: {
+                        Image(systemName: "arrow.triangle.turn.up.right.diamond")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.9))
+                            .padding(8)
+                    }
+                    .accessibilityLabel(L10n.wrongNavigateTo)
+                }
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .padding()
+                }
             }
         }
     }

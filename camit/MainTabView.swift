@@ -9,6 +9,8 @@ struct MainTabView: View {
     @State private var isShowingCamera: Bool = false
     @State private var isAnalyzing: Bool = false
     @State private var alertMessage: String?
+    /// 从试卷 TAB 转向错题 TAB 时，聚焦到此试卷并显示全部题目
+    @State private var navigateToWrongPaperID: UUID?
 
     enum Tab: Hashable {
         case papers
@@ -58,10 +60,13 @@ struct MainTabView: View {
     private var content: some View {
         switch selectedTab {
         case .papers:
-            HomeView(settings: settings)
-                .environmentObject(store)
+            HomeView(settings: settings, onNavigateToWrongQuestions: { paperID in
+                selectedTab = .wrong
+                navigateToWrongPaperID = paperID
+            })
+            .environmentObject(store)
         case .wrong:
-            WrongQuestionsView(settings: settings)
+            WrongQuestionsView(settings: settings, focusedPaperID: $navigateToWrongPaperID)
                 .environmentObject(store)
         }
     }

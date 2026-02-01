@@ -4,6 +4,7 @@ import UIKit
 struct HomeView: View {
     @EnvironmentObject private var store: ScanStore
     @ObservedObject var settings: AppSettings
+    var onNavigateToWrongQuestions: ((UUID) -> Void)? = nil
 
     @State private var searchText: String = ""
     @State private var isAllScanSelected: Bool = true
@@ -80,13 +81,29 @@ struct HomeView: View {
             } else if item.imageFileNames.count == 1,
                       let url = store.imageURL(for: item, index: 0),
                       let ui = UIImage(contentsOfFile: url.path) {
-                ImageViewer(image: ui, allowZoomAndPan: false)
+                ImageViewer(
+                    image: ui,
+                    allowZoomAndPan: false,
+                    showNavigateButton: true,
+                    onNavigateToWrong: {
+                        viewerItem = nil
+                        onNavigateToWrongQuestions?(item.id)
+                    }
+                )
             } else {
                 TabView {
                     ForEach(0..<item.imageFileNames.count, id: \.self) { index in
                         if let url = store.imageURL(for: item, index: index),
                            let ui = UIImage(contentsOfFile: url.path) {
-                            ImageViewer(image: ui, allowZoomAndPan: false)
+                            ImageViewer(
+                                image: ui,
+                                allowZoomAndPan: false,
+                                showNavigateButton: true,
+                                onNavigateToWrong: {
+                                    viewerItem = nil
+                                    onNavigateToWrongQuestions?(item.id)
+                                }
+                            )
                         } else {
                             Color.gray.opacity(0.3)
                         }

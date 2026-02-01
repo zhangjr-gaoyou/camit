@@ -77,6 +77,8 @@ enum L10n {
     static var wrongNoCrop: String { isChinese ? "暂无错题" : "No wrong questions" }
     static var wrongShowAll: String { isChinese ? "显示全部题目" : "Show all questions" }
     static var wrongLoadCropFailed: String { isChinese ? "无法加载切图" : "Cannot load crop" }
+    static var wrongNavigateTo: String { isChinese ? "转向错题" : "Go to Wrong" }
+    static var wrongShowAllPapers: String { isChinese ? "显示全部试卷" : "Show all papers" }
 
     // MARK: - Camera
     static var cameraCancel: String { isChinese ? "取消" : "Cancel" }

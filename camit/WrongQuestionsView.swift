@@ -3,13 +3,18 @@ import SwiftUI
 struct WrongQuestionsView: View {
     @ObservedObject var settings: AppSettings
     @EnvironmentObject private var store: ScanStore
+    @Binding var focusedPaperID: UUID?
     @State private var showAllQuestions: Bool = false
     @State private var analyzingQuestionIDs: Set<UUID> = []
     @State private var alertMessage: String?
     @State private var cropImageToShow: String?
 
     private var papersWithQuestions: [ScanItem] {
-        store.items.filter { !$0.questions.isEmpty }
+        let all = store.items.filter { !$0.questions.isEmpty }
+        if let fid = focusedPaperID {
+            return all.filter { $0.id == fid }
+        }
+        return all
     }
 
     var body: some View {
@@ -20,6 +25,12 @@ struct WrongQuestionsView: View {
                 } else {
                     List {
                         Section {
+                            if focusedPaperID != nil {
+                                Button(L10n.wrongShowAllPapers) {
+                                    focusedPaperID = nil
+                                }
+                                .font(.subheadline.weight(.medium))
+                            }
                             Toggle(L10n.wrongShowAll, isOn: $showAllQuestions)
                         }
 
@@ -37,11 +48,28 @@ struct WrongQuestionsView: View {
                                 .textCase(nil)
                             }
                         }
+                        Section {
+                            Color.clear
+                                .frame(height: 88)
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets())
+                        }
                     }
                     .listStyle(.insetGrouped)
                 }
             }
             .navigationTitle(L10n.tabWrong)
+            .onAppear {
+                if focusedPaperID != nil {
+                    showAllQuestions = true
+                }
+            }
+            .onChange(of: focusedPaperID) { newID in
+                if newID != nil {
+                    showAllQuestions = true
+                }
+            }
             .alert(L10n.alertTitle, isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })) {
                 Button(L10n.alertOK, role: .cancel) {}
             } message: {
@@ -265,7 +293,7 @@ private extension WrongQuestionsView {
 }
 
 #Preview {
-    WrongQuestionsView(settings: AppSettings())
+    WrongQuestionsView(settings: AppSettings(), focusedPaperID: .constant(nil))
         .environmentObject(ScanStore())
 }
 

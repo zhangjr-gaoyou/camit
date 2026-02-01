@@ -49,7 +49,7 @@ struct GeminiClient {
         let systemPrompt = paperAnalysisSystemPrompt()
         let userText = "请分析这张图片。"
 
-        var body: [String: Any] = [
+        let body: [String: Any] = [
             "systemInstruction": ["parts": [["text": systemPrompt]]],
             "contents": [
                 [
