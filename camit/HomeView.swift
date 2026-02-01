@@ -31,16 +31,6 @@ struct HomeView: View {
         }
     }
 
-    private var availableGrades: [Grade] {
-        let present = Set(baseItems.map(\.grade))
-        return gradeOrder.filter { present.contains($0) }
-    }
-
-    private var availableSubjects: [Subject] {
-        let present = Set(baseItems.map(\.subject))
-        return subjectOrder.filter { present.contains($0) }
-    }
-
     private var filteredItems: [ScanItem] {
         var results = baseItems
         if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -232,28 +222,28 @@ struct HomeView: View {
 
             Menu {
                 Button(L10n.homeFilterAll) { selectedGrade = nil; isAllScanSelected = false }
-                ForEach(availableGrades, id: \.self) { g in
-                    Button(g.rawValue) { selectedGrade = g; isAllScanSelected = false }
+                ForEach(gradeOrder, id: \.self) { g in
+                    Button(g.displayName) { selectedGrade = g; isAllScanSelected = false }
                 }
             } label: {
-                FilterChip(title: selectedGrade?.rawValue ?? L10n.filterGrade, showsChevron: true)
+                FilterChip(title: selectedGrade?.displayName ?? L10n.filterGrade, showsChevron: true)
             }
 
             Menu {
                 Button(L10n.homeFilterAll) { selectedSubject = nil; isAllScanSelected = false }
-                ForEach(availableSubjects, id: \.self) { s in
-                    Button(s.rawValue) { selectedSubject = s; isAllScanSelected = false }
+                ForEach(subjectOrder, id: \.self) { s in
+                    Button(s.displayName) { selectedSubject = s; isAllScanSelected = false }
                 }
             } label: {
-                FilterChip(title: selectedSubject?.rawValue ?? L10n.filterSubject, showsChevron: true)
+                FilterChip(title: selectedSubject?.displayName ?? L10n.filterSubject, showsChevron: true)
             }
 
             Menu {
                 ForEach(ScoreFilter.allCases, id: \.self) { s in
-                    Button(s.rawValue) { selectedScore = s; isAllScanSelected = false }
+                    Button(s.displayName) { selectedScore = s; isAllScanSelected = false }
                 }
             } label: {
-                FilterChip(title: selectedScore.rawValue, showsChevron: true)
+                FilterChip(title: selectedScore.displayName, showsChevron: true)
             }
         }
         .padding(.horizontal, 16)
@@ -345,7 +335,7 @@ private struct ScanCardView: View {
                     .frame(height: cardHeight)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-                Text(item.subject.rawValue)
+                Text(item.subject.displayName)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Color(hex: item.subject.badgeColorHex))
                     .padding(.horizontal, 10)
@@ -392,7 +382,7 @@ private struct ScanCardView: View {
                 .lineLimit(1)
                 .onTapGesture(perform: onTapTitle)
 
-            Text("\(relativeTime(item.createdAt)) · \(item.grade.rawValue)")
+            Text("\(relativeTime(item.createdAt)) · \(item.grade.displayName)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

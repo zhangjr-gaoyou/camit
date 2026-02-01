@@ -30,7 +30,7 @@ struct WrongQuestionsView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(paper.title)
                                         .font(.headline)
-                                    Text("\(paper.subject.rawValue) · \(paper.grade.rawValue)")
+                                    Text("\(paper.subject.displayName) · \(paper.grade.displayName)")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                 }

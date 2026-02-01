@@ -50,7 +50,8 @@ enum L10n {
     static var appTitle: String { isChinese ? "试卷管家" : "Exam Manager" }
     static var searchPlaceholder: String { isChinese ? "搜索试卷、科目、年级…" : "Search papers, subject, grade…" }
     static var filterGrade: String { isChinese ? "年级" : "Grade" }
-    static var filterSubject: String { isChinese ? "科目" : "Subject" }
+    /// 英文用缩写避免换行
+    static var filterSubject: String { isChinese ? "科目" : "Subj" }
     static var paperActions: String { isChinese ? "试卷操作" : "Paper actions" }
     static var archiveAction: String { isChinese ? "归档" : "Archive" }
     static var deleteAction: String { isChinese ? "删除" : "Delete" }
@@ -81,4 +82,62 @@ enum L10n {
     static var cameraCancel: String { isChinese ? "取消" : "Cancel" }
     static var cameraGuide: String { isChinese ? "将试卷对准框内" : "Align paper in frame" }
     static var cameraFromAlbum: String { isChinese ? "从相册选择" : "From album" }
+
+    // MARK: - Subject
+    static func subject(_ subject: Subject) -> String {
+        if isChinese {
+            return subject.rawValue
+        }
+        switch subject {
+        case .chinese: return "Chinese"
+        case .math: return "Math"
+        case .english: return "English"
+        case .geography: return "Geography"
+        case .physics: return "Physics"
+        case .chemistry: return "Chemistry"
+        case .other: return "Other"
+        }
+    }
+
+    // MARK: - Grade
+    static func grade(_ grade: Grade) -> String {
+        if isChinese {
+            return grade.rawValue
+        }
+        switch grade {
+        case .primary1: return "Grade 1"
+        case .primary2: return "Grade 2"
+        case .primary3: return "Grade 3"
+        case .primary4: return "Grade 4"
+        case .primary5: return "Grade 5"
+        case .primary6: return "Grade 6"
+        case .junior1: return "Grade 7"
+        case .junior2: return "Grade 8"
+        case .junior3: return "Grade 9"
+        case .other: return "Other"
+        }
+    }
+
+    // MARK: - Score Filter
+    static func scoreFilter(_ filter: ScoreFilter) -> String {
+        if isChinese {
+            return filter.rawValue
+        }
+        switch filter {
+        case .all: return "Score"
+        case .lt60: return "< 60"
+        case .from60to80: return "60-80"
+        case .from80to90: return "80-90"
+        case .gte90: return "≥ 90"
+        }
+    }
+
+    // MARK: - Paper Meta Editor
+    static var paperMetaTitle: String { isChinese ? "试卷设置" : "Paper Settings" }
+    static var paperMetaSection: String { isChinese ? "试卷信息" : "Paper Info" }
+    static var paperMetaName: String { isChinese ? "试卷名称" : "Paper Name" }
+    static var paperMetaGrade: String { isChinese ? "年级" : "Grade" }
+    static var paperMetaSubject: String { isChinese ? "科目" : "Subject" }
+    static var paperMetaScore: String { isChinese ? "分数（可选）" : "Score (optional)" }
+    static var paperMetaSave: String { isChinese ? "保存" : "Save" }
 }

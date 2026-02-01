@@ -9,6 +9,10 @@ enum Subject: String, CaseIterable, Codable, Equatable {
     case chemistry = "化学"
     case other = "其他"
 
+    var displayName: String {
+        L10n.subject(self)
+    }
+
     var badgeColorHex: String {
         switch self {
         case .chinese: return "#0984E3"
@@ -33,6 +37,10 @@ enum Grade: String, CaseIterable, Codable, Equatable {
     case junior2 = "初二"
     case junior3 = "初三"
     case other = "其他"
+
+    var displayName: String {
+        L10n.grade(self)
+    }
 }
 
 enum ScoreFilter: String, CaseIterable, Codable, Equatable {
@@ -41,6 +49,10 @@ enum ScoreFilter: String, CaseIterable, Codable, Equatable {
     case from60to80 = "60-80"
     case from80to90 = "80-90"
     case gte90 = "≥ 90"
+
+    var displayName: String {
+        L10n.scoreFilter(self)
+    }
 }
 
 struct ScanItem: Identifiable, Codable, Equatable {
