@@ -9,6 +9,7 @@ struct MainTabView: View {
     @State private var isShowingCamera: Bool = false
     @State private var isAnalyzing: Bool = false
     @State private var alertMessage: String?
+    @State private var isShowingSettings: Bool = false
     /// 从试卷 TAB 转向错题 TAB 时，聚焦到此试卷并显示全部题目
     @State private var navigateToWrongPaperID: UUID?
 
@@ -49,10 +50,25 @@ struct MainTabView: View {
                 .transition(.opacity)
             }
         }
-        .alert(L10n.alertTitle, isPresented: Binding(get: { alertMessage != nil }, set: { if !$0 { alertMessage = nil } })) {
+        .alert(L10n.alertTitle, isPresented: Binding(
+            get: { alertMessage != nil },
+            set: { if !$0 {
+                if alertMessage == L10n.settingsConfigRequiredForCamera {
+                    isShowingSettings = true
+                }
+                alertMessage = nil
+            } }
+        )) {
             Button(L10n.alertOK, role: .cancel) {}
         } message: {
             Text(alertMessage ?? "")
+        }
+        .sheet(isPresented: $isShowingSettings) {
+            SettingsView(settings: settings)
+#if !os(macOS)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+#endif
         }
     }
 
@@ -121,7 +137,13 @@ struct MainTabView: View {
 
     private var cameraButton: some View {
         Button {
-            isShowingCamera = true
+            if let cfg = settings.effectiveConfig(),
+               !cfg.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+               !cfg.effectiveVLModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                isShowingCamera = true
+            } else {
+                alertMessage = L10n.settingsConfigRequiredForCamera
+            }
         } label: {
             VStack(spacing: 6) {
                 ZStack {

@@ -34,8 +34,9 @@ final class ScanStore: ObservableObject {
         let grade = Grade(rawValue: result.grade) ?? .other
 
         let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
+        let totalCount = itemsToUse.count
         let questions: [PaperQuestion] = itemsToUse.enumerated().map { idx, item in
-            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx, provider: provider)
+            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx, totalCount: totalCount, provider: provider)
             return PaperQuestion(
                 index: idx + 1,
                 kind: item.type,
@@ -104,8 +105,9 @@ final class ScanStore: ObservableObject {
         let result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config)
         let startIndex = items[i].questions.count
         let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
+        let totalCount = itemsToUse.count
         let newQuestions: [PaperQuestion] = itemsToUse.enumerated().map { idx, item in
-            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: startIndex + idx, provider: provider)
+            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: startIndex + idx, totalCount: totalCount, provider: provider)
             return PaperQuestion(
                 index: startIndex + idx + 1,
                 kind: item.type,
@@ -238,10 +240,19 @@ final class ScanStore: ObservableObject {
         return BBox(x: 0, y: minY, width: 1, height: maxBottom - minY)
     }
 
-    /// 根据 bbox 从图片中切出题目横条；扩充比例按供应商区分（Bailian 保持原逻辑，Gemini/OpenAI 上部多扩以弥补识别框偏小）
-    private func cropQuestionImage(from image: UIImage, bbox: BBox?, index: Int, provider: LLMProvider) -> String? {
-        guard let bbox = bbox else { return nil }
-        
+    /// 根据 bbox 从图片中切出题目横条；扩充比例按供应商区分。当 bbox 为空（如 OpenAI 未返回）时按题目序号均分高度估算区域
+    private func cropQuestionImage(from image: UIImage, bbox: BBox?, index: Int, totalCount: Int, provider: LLMProvider) -> String? {
+        let effectiveBbox: BBox
+        if let b = bbox {
+            effectiveBbox = b
+        } else if totalCount > 0 {
+            let n = Double(totalCount)
+            let stripHeight = 1.0 / n
+            effectiveBbox = BBox(x: 0, y: Double(index) * stripHeight, width: 1, height: stripHeight)
+        } else {
+            return nil
+        }
+
         // 先校正图片方向，确保 cgImage 的宽高和显示方向一致
         let normalizedImage = normalizeImageOrientation(image)
         guard let cgImage = normalizedImage.cgImage else { return nil }
@@ -250,8 +261,8 @@ final class ScanStore: ObservableObject {
         let imageHeight = CGFloat(cgImage.height)
 
         // 归一化坐标转像素坐标
-        let bboxY = CGFloat(bbox.y) * imageHeight
-        let bboxHeight = CGFloat(bbox.height) * imageHeight
+        let bboxY = CGFloat(effectiveBbox.y) * imageHeight
+        let bboxHeight = CGFloat(effectiveBbox.height) * imageHeight
 
         // 宽度：整个试卷宽度（不裁剪左右）
         let x: CGFloat = 0
