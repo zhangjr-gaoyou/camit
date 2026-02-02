@@ -232,30 +232,18 @@ private extension WrongQuestionsView {
             Text(L10n.wrongNoCrop)
                 .foregroundStyle(.secondary)
         } else {
-            let grouped = Dictionary(grouping: questions) { (q: PaperQuestion) in
-                (q.section?.isEmpty == false ? q.section! : "未分板块")
-            }
-            let orderedKeys = grouped.keys.sorted()
-
-            ForEach(orderedKeys, id: \.self) { section in
-                if section != "未分板块" {
-                    Text(section)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(grouped[section] ?? []) { q in
-                    ItemCard(
-                        scanID: paper.id,
-                        question: q,
-                        onToggleWrong: { store.toggleWrong(scanID: paper.id, questionID: q.id) },
-                        onAnalyze: { analyzeQuestion(paper: paper, question: q) },
-                        isAnalyzing: analyzingQuestionIDs.contains(q.id),
-                        onShowCropImage: { cropImageToShow = q.cropImageFileName }
-                    )
-                    .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                }
+            ForEach(questions) { q in
+                ItemCard(
+                    scanID: paper.id,
+                    question: q,
+                    onToggleWrong: { store.toggleWrong(scanID: paper.id, questionID: q.id) },
+                    onAnalyze: { analyzeQuestion(paper: paper, question: q) },
+                    isAnalyzing: analyzingQuestionIDs.contains(q.id),
+                    onShowCropImage: { cropImageToShow = q.cropImageFileName }
+                )
+                .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
             }
         }
     }
