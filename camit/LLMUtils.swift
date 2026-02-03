@@ -55,3 +55,20 @@ let paperAnalysisSystemPromptText = """
 type 只能是 "板块分类"、"题干"、"题目" 之一。
 bbox 为该项在图片中的边界框，坐标为归一化值（0-1）：x/y 为左上角相对位置，width/height 为相对宽高。如果无法确定位置可省略 bbox。
 """
+
+/// 重试时追加到解析提示词后的强调说明
+let paperAnalysisPromptSuffixForRetry = """
+
+【重要】请特别注意：1) 题干与题目必须严格区分——问句单独标为题干，含 A/B/C/D 选项的整体标为题目；2) 每项的 bbox 须完整覆盖该内容在图片中的区域，勿遗漏。
+"""
+
+/// 校验解析结果时的用户消息前缀，后面拼接 itemsSummary
+func paperValidationUserMessage(itemsSummary: String) -> String {
+    """
+    以下是对该试卷图片的解析结果（仅 type 与 content）：
+    \(itemsSummary)
+
+    请结合图片检查：1) 题干与题目是否正确区分；2) 各题内容是否完整、边界是否合理。
+    只返回 JSON，不要 Markdown：{"valid": true/false, "score": 0-100, "issues": "问题描述或空字符串"}
+    """
+}

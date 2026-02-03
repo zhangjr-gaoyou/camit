@@ -67,7 +67,8 @@ struct BailianClient {
     }
 
     /// Use VL model to determine if the image is a paper/homework and extract all questions.
-    func analyzePaper(imageJPEGData: Data, config: BailianConfig) async throws -> PaperVisionResult {
+    /// - Parameter promptSuffix: 重试时追加到系统提示词后的强调说明，首次传 nil
+    func analyzePaper(imageJPEGData: Data, config: BailianConfig, promptSuffix: String? = nil) async throws -> PaperVisionResult {
         let base = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let baseURL = URL(string: base) else { throw BailianError.invalidBaseURL }
 
@@ -81,7 +82,7 @@ struct BailianClient {
         let b64 = imageJPEGData.base64EncodedString()
         let dataURL = "data:image/jpeg;base64,\(b64)"
 
-        let system = paperAnalysisSystemPromptText
+        let system = paperAnalysisSystemPromptText + (promptSuffix ?? "")
         let userText = "请分析这张图片。"
 
         let body = VLChatCompletionsRequest(
@@ -126,6 +127,52 @@ struct BailianClient {
             throw BailianError.invalidResponseJSON
         }
 
+        return result
+    }
+
+    /// 使用 VL 模型校验解析结果：题干/题目区分、边界是否合理
+    func validatePaperResult(imageJPEGData: Data, itemsSummary: String, config: BailianConfig) async throws -> PaperValidationResult {
+        let base = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let baseURL = URL(string: base) else { throw BailianError.invalidBaseURL }
+        let url = baseURL.appendingPathComponent("chat/completions")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+
+        let b64 = imageJPEGData.base64EncodedString()
+        let dataURL = "data:image/jpeg;base64,\(b64)"
+        let userText = paperValidationUserMessage(itemsSummary: itemsSummary)
+
+        let body = VLChatCompletionsRequest(
+            model: config.vlModel,
+            messages: [
+                .init(role: "user", content: .parts([
+                    .text(userText),
+                    .imageURL(dataURL)
+                ]))
+            ],
+            temperature: 0.1,
+            stream: false
+        )
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw BailianError.httpError(statusCode: -1, body: "无效响应") }
+        guard (200..<300).contains(http.statusCode) else {
+            throw BailianError.httpError(statusCode: http.statusCode, body: String(data: data, encoding: .utf8) ?? "")
+        }
+
+        guard let decoded = try? JSONDecoder().decode(ChatCompletionsResponse.self, from: data),
+              let content = decoded.choices.first?.message.content else {
+            throw BailianError.emptyResponse
+        }
+        let jsonText = extractFirstJSONObject(from: content) ?? content
+        guard let jsonData = jsonText.data(using: .utf8),
+              let result = try? JSONDecoder().decode(PaperValidationResult.self, from: jsonData) else {
+            return PaperValidationResult(valid: true, score: 80, issues: nil)
+        }
         return result
     }
 }
@@ -195,6 +242,13 @@ struct QuestionAnalysisResult: Codable, Equatable {
     let section: String?
     let answer: String
     let explanation: String
+}
+
+/// 试卷解析结果校验：大模型对解析+切图结果的评估
+struct PaperValidationResult: Codable, Equatable {
+    let valid: Bool
+    let score: Int?
+    let issues: String?
 }
 
 struct VLChatCompletionsRequest: Codable {

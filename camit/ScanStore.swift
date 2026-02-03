@@ -16,11 +16,45 @@ final class ScanStore: ObservableObject {
     }
 
     /// Analyze the captured image with VL model; if it's a paper/homework, persist it and extracted questions.
+    /// 解析后使用大模型校验题干/题目与切图；若有偏差则调整提示词重试，最多 3 次，取效果最好的一次。
     func analyzeAndAddScan(image: UIImage, provider: LLMProvider, config: any LLMConfigProtocol) async throws -> ScanItem? {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return nil }
-        let result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config)
 
-        guard result.is_homework_or_exam else {
+        var bestResult: PaperVisionResult?
+        var bestScore: Int = -1
+        var bestItemsToUse: [(type: String, content: String, bbox: BBox?)] = []
+
+        for attempt in 0..<3 {
+            let promptSuffix = (attempt > 0) ? paperAnalysisPromptSuffixForRetry : nil
+            let result: PaperVisionResult
+            do {
+                result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config, promptSuffix: promptSuffix)
+            } catch {
+                if attempt == 0 { throw error }
+                continue
+            }
+            guard result.is_homework_or_exam else {
+                if attempt == 0 { return nil }
+                continue
+            }
+            let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
+            let itemsSummary = itemsToUse.map { "[\($0.type)] \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
+            let validation: PaperValidationResult
+            do {
+                validation = try await LLMService.validatePaperResult(imageJPEGData: data, itemsSummary: itemsSummary, provider: provider, config: config)
+            } catch {
+                if attempt == 0 { throw error }
+                continue
+            }
+            let score = validation.score ?? 0
+            if score > bestScore {
+                bestScore = score
+                bestResult = result
+                bestItemsToUse = itemsToUse
+            }
+        }
+
+        guard let result = bestResult, !bestItemsToUse.isEmpty else {
             return nil
         }
 
@@ -32,10 +66,8 @@ final class ScanStore: ObservableObject {
 
         let subject = Subject(rawValue: result.subject) ?? .other
         let grade = Grade(rawValue: result.grade) ?? .other
-
-        let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
-        let totalCount = itemsToUse.count
-        let questions: [PaperQuestion] = itemsToUse.enumerated().map { idx, item in
+        let totalCount = bestItemsToUse.count
+        let questions: [PaperQuestion] = bestItemsToUse.enumerated().map { idx, item in
             let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx, totalCount: totalCount, provider: provider)
             return PaperQuestion(
                 index: idx + 1,
@@ -92,9 +124,43 @@ final class ScanStore: ObservableObject {
     }
 
     /// Add another image to an existing paper; run VL analysis and merge extracted questions.
+    /// 与 analyzeAndAddScan 一致：解析后校验，最多重试 3 次，取效果最好的一次。
     func addImage(scanID: UUID, image: UIImage, provider: LLMProvider, config: any LLMConfigProtocol) async throws {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return }
         guard let i = items.firstIndex(where: { $0.id == scanID }) else { return }
+
+        var bestResult: PaperVisionResult?
+        var bestScore: Int = -1
+        var bestItemsToUse: [(type: String, content: String, bbox: BBox?)] = []
+
+        for attempt in 0..<3 {
+            let promptSuffix = (attempt > 0) ? paperAnalysisPromptSuffixForRetry : nil
+            let result: PaperVisionResult
+            do {
+                result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config, promptSuffix: promptSuffix)
+            } catch {
+                if attempt == 0 { throw error }
+                continue
+            }
+            guard result.is_homework_or_exam else { continue }
+            let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
+            let itemsSummary = itemsToUse.map { "[\($0.type)] \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
+            let validation: PaperValidationResult
+            do {
+                validation = try await LLMService.validatePaperResult(imageJPEGData: data, itemsSummary: itemsSummary, provider: provider, config: config)
+            } catch {
+                if attempt == 0 { throw error }
+                continue
+            }
+            let score = validation.score ?? 0
+            if score > bestScore {
+                bestScore = score
+                bestResult = result
+                bestItemsToUse = itemsToUse
+            }
+        }
+
+        guard bestResult != nil, !bestItemsToUse.isEmpty else { return }
 
         let fileName = "scan-\(UUID().uuidString).jpg"
         if let url = try? imageURL(fileName: fileName) {
@@ -102,11 +168,9 @@ final class ScanStore: ObservableObject {
         }
         items[i].imageFileNames.append(fileName)
 
-        let result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config)
         let startIndex = items[i].questions.count
-        let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
-        let totalCount = itemsToUse.count
-        let newQuestions: [PaperQuestion] = itemsToUse.enumerated().map { idx, item in
+        let totalCount = bestItemsToUse.count
+        let newQuestions: [PaperQuestion] = bestItemsToUse.enumerated().map { idx, item in
             let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: startIndex + idx, totalCount: totalCount, provider: provider)
             return PaperQuestion(
                 index: startIndex + idx + 1,
