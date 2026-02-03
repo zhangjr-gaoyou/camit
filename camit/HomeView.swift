@@ -23,6 +23,7 @@ struct HomeView: View {
     @State private var editingItem: ScanItem?
     @State private var addImageForItem: ScanItem?
     @State private var isAddingImageToPaper: Bool = false
+    @State private var addingImageMessage: String = L10n.analyzing
 
     private var baseItems: [ScanItem] {
         store.items.filter {
@@ -161,10 +162,21 @@ struct HomeView: View {
                 onImagePicked: { image in
                     guard let image, let cfg = settings.effectiveConfig() else { return }
                     addImageForItem = nil
+                    addingImageMessage = L10n.analyzeStagePreparing
                     isAddingImageToPaper = true
                     Task {
                         defer { isAddingImageToPaper = false }
-                        try? await store.addImage(scanID: item.id, image: image, provider: settings.provider, config: cfg)
+                        try? await store.addImage(
+                            scanID: item.id,
+                            image: image,
+                            provider: settings.provider,
+                            config: cfg,
+                            progress: { message in
+                                Task { @MainActor in
+                                    addingImageMessage = message
+                                }
+                            }
+                        )
                     }
                 },
                 onDismiss: { addImageForItem = nil }
@@ -176,7 +188,7 @@ struct HomeView: View {
                     Color.black.opacity(0.25).ignoresSafeArea()
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text(L10n.parsing)
+                        Text(addingImageMessage)
                             .font(.subheadline.weight(.semibold))
                     }
                     .padding(18)

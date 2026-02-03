@@ -138,15 +138,26 @@ final class ScanStore: ObservableObject {
 
     /// Add another image to an existing paper; run VL analysis and merge extracted questions.
     /// 与 analyzeAndAddScan 一致：解析后校验，最多重试 3 次，取效果最好的一次。
-    func addImage(scanID: UUID, image: UIImage, provider: LLMProvider, config: any LLMConfigProtocol) async throws {
+    /// - Parameter progress: 可选进度回调，用于更新 UI 提示当前阶段
+    func addImage(
+        scanID: UUID,
+        image: UIImage,
+        provider: LLMProvider,
+        config: any LLMConfigProtocol,
+        progress: ((String) -> Void)? = nil
+    ) async throws {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return }
         guard let i = items.firstIndex(where: { $0.id == scanID }) else { return }
+
+        progress?(L10n.analyzeStagePreparing)
 
         var bestResult: PaperVisionResult?
         var bestScore: Int = -1
         var bestItemsToUse: [(type: String, content: String, bbox: BBox?)] = []
 
         for attempt in 0..<3 {
+            let current = attempt + 1
+            progress?(L10n.analyzeStageVisionAttempt(current: current, total: 3))
             let promptSuffix = (attempt > 0) ? paperAnalysisPromptSuffixForRetry : nil
             let result: PaperVisionResult
             do {
@@ -160,6 +171,7 @@ final class ScanStore: ObservableObject {
             let itemsSummary = itemsToUse.map { "[\($0.type)] \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
             let validation: PaperValidationResult
             do {
+                progress?(L10n.analyzeStageValidating(current: current, total: 3))
                 validation = try await LLMService.validatePaperResult(imageJPEGData: data, itemsSummary: itemsSummary, provider: provider, config: config)
             } catch {
                 if attempt == 0 { throw error }
@@ -174,6 +186,8 @@ final class ScanStore: ObservableObject {
         }
 
         guard bestResult != nil, !bestItemsToUse.isEmpty else { return }
+
+        progress?(L10n.analyzeStageCropping)
 
         let fileName = "scan-\(UUID().uuidString).jpg"
         if let url = try? imageURL(fileName: fileName) {
