@@ -99,7 +99,7 @@ struct HomeView: View {
                       let ui = UIImage(contentsOfFile: url.path) {
                 ImageViewer(
                     image: ui,
-                    allowZoomAndPan: false,
+                    allowZoomAndPan: true,
                     showNavigateButton: true,
                     onNavigateToWrong: {
                         viewerItem = nil
@@ -113,7 +113,7 @@ struct HomeView: View {
                            let ui = UIImage(contentsOfFile: url.path) {
                             ImageViewer(
                                 image: ui,
-                                allowZoomAndPan: false,
+                                allowZoomAndPan: true,
                                 showNavigateButton: true,
                                 onNavigateToWrong: {
                                     viewerItem = nil

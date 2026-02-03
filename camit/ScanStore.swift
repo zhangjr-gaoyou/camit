@@ -184,7 +184,8 @@ final class ScanStore: ObservableObject {
         let startIndex = items[i].questions.count
         let totalCount = bestItemsToUse.count
         let newQuestions: [PaperQuestion] = bestItemsToUse.enumerated().map { idx, item in
-            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: startIndex + idx, totalCount: totalCount, provider: provider)
+            // index 仅表示当前图片中的题目序号（0-based），避免在无 bbox 回退时越界
+            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx, totalCount: totalCount, provider: provider)
             return PaperQuestion(
                 index: startIndex + idx + 1,
                 kind: item.type,
@@ -319,13 +320,29 @@ final class ScanStore: ObservableObject {
 
     /// 根据 bbox 从图片中切出题目横条；扩充比例按供应商区分。当 bbox 为空（如 OpenAI 未返回）时按题目序号均分高度估算区域
     private func cropQuestionImage(from image: UIImage, bbox: BBox?, index: Int, totalCount: Int, provider: LLMProvider) -> String? {
+        // 对部分模型返回的 bbox 做简单校验（坐标超界或高度太小则视为无效）
+        let isValidBBox: (BBox) -> Bool = { b in
+            return b.x >= 0 &&
+                b.y >= 0 &&
+                b.width > 0 &&
+                b.height > 0 &&
+                b.x <= 1 &&
+                b.y <= 1
+        }
+
         let effectiveBbox: BBox
-        if let b = bbox {
+        if let b = bbox, isValidBBox(b) {
             effectiveBbox = b
         } else if totalCount > 0 {
             let n = Double(totalCount)
+            let clampedIndex = max(0, min(index, Int(n) - 1))
             let stripHeight = 1.0 / n
-            effectiveBbox = BBox(x: 0, y: Double(index) * stripHeight, width: 1, height: stripHeight)
+            effectiveBbox = BBox(
+                x: 0,
+                y: Double(clampedIndex) * stripHeight,
+                width: 1,
+                height: stripHeight
+            )
         } else {
             return nil
         }
