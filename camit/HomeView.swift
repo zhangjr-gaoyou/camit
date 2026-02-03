@@ -40,16 +40,32 @@ struct HomeView: View {
         }
         if let g = selectedGrade { results = results.filter { $0.grade == g } }
         if let s = selectedSubject { results = results.filter { $0.subject == s } }
-        // score is placeholder (no score in model yet)
+        // score filter 预留，将来可根据 score 字段补充
         return results
     }
 
+    /// 本周所有试卷（按创建时间范围），用于「本周 / 最近添加」区块
     private var recentItems: [ScanItem] {
-        Array(filteredItems.prefix(2))
+        let calendar = Calendar.current
+        let now = Date()
+        guard let weekInterval = calendar.dateInterval(of: .weekOfYear, for: now) else {
+            return filteredItems
+        }
+        return filteredItems.filter { weekInterval.contains($0.createdAt) }
     }
 
+    /// 上周所有试卷（按创建时间范围），用于「上周」区块
     private var lastWeekItems: [ScanItem] {
-        Array(filteredItems.dropFirst(2).prefix(4))
+        let calendar = Calendar.current
+        let now = Date()
+        guard
+            let thisWeekInterval = calendar.dateInterval(of: .weekOfYear, for: now),
+            let lastWeekStart = calendar.date(byAdding: .weekOfYear, value: -1, to: thisWeekInterval.start),
+            let lastWeekInterval = calendar.dateInterval(of: .weekOfYear, for: lastWeekStart)
+        else {
+            return []
+        }
+        return filteredItems.filter { lastWeekInterval.contains($0.createdAt) }
     }
 
     var body: some View {

@@ -40,6 +40,30 @@ enum L10n {
     static var tabWrong: String { isChinese ? "错题" : "Wrong" }
     static var tabCamera: String { isChinese ? "拍照" : "Photo" }
     static var analyzing: String { isChinese ? "识别中…" : "Analyzing…" }
+    /// 拍照解析：准备阶段
+    static var analyzeStagePreparing: String {
+        isChinese ? "正在准备解析试卷…" : "Preparing to analyze paper…"
+    }
+    /// 拍照解析：结构识别阶段（第 current 次 / 共 total 次）
+    static func analyzeStageVisionAttempt(current: Int, total: Int) -> String {
+        if isChinese {
+            return "第 \(current)/\(total) 次：识别试卷结构与题目…"
+        } else {
+            return "Attempt \(current)/\(total): analyzing paper layout and questions…"
+        }
+    }
+    /// 拍照解析：质量校验阶段
+    static func analyzeStageValidating(current: Int, total: Int) -> String {
+        if isChinese {
+            return "第 \(current)/\(total) 次：校验题干、题目与切图质量…"
+        } else {
+            return "Attempt \(current)/\(total): validating stems, items and crops…"
+        }
+    }
+    /// 拍照解析：切图阶段
+    static var analyzeStageCropping: String {
+        isChinese ? "正在为每道题生成切图…" : "Generating crops for each question…"
+    }
     static var alertTitle: String { isChinese ? "提示" : "Notice" }
     static var alertOK: String { isChinese ? "确定" : "OK" }
     static var cancel: String { isChinese ? "取消" : "Cancel" }

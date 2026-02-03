@@ -17,14 +17,24 @@ final class ScanStore: ObservableObject {
 
     /// Analyze the captured image with VL model; if it's a paper/homework, persist it and extracted questions.
     /// 解析后使用大模型校验题干/题目与切图；若有偏差则调整提示词重试，最多 3 次，取效果最好的一次。
-    func analyzeAndAddScan(image: UIImage, provider: LLMProvider, config: any LLMConfigProtocol) async throws -> ScanItem? {
+    /// - Parameter progress: 可选进度回调，用于更新 UI 提示当前阶段
+    func analyzeAndAddScan(
+        image: UIImage,
+        provider: LLMProvider,
+        config: any LLMConfigProtocol,
+        progress: ((String) -> Void)? = nil
+    ) async throws -> ScanItem? {
         guard let data = image.jpegData(compressionQuality: 0.85) else { return nil }
+
+        progress?(L10n.analyzeStagePreparing)
 
         var bestResult: PaperVisionResult?
         var bestScore: Int = -1
         var bestItemsToUse: [(type: String, content: String, bbox: BBox?)] = []
 
         for attempt in 0..<3 {
+            let current = attempt + 1
+            progress?(L10n.analyzeStageVisionAttempt(current: current, total: 3))
             let promptSuffix = (attempt > 0) ? paperAnalysisPromptSuffixForRetry : nil
             let result: PaperVisionResult
             do {
@@ -41,6 +51,7 @@ final class ScanStore: ObservableObject {
             let itemsSummary = itemsToUse.map { "[\($0.type)] \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
             let validation: PaperValidationResult
             do {
+                progress?(L10n.analyzeStageValidating(current: current, total: 3))
                 validation = try await LLMService.validatePaperResult(imageJPEGData: data, itemsSummary: itemsSummary, provider: provider, config: config)
             } catch {
                 if attempt == 0 { throw error }
@@ -57,6 +68,8 @@ final class ScanStore: ObservableObject {
         guard let result = bestResult, !bestItemsToUse.isEmpty else {
             return nil
         }
+
+        progress?(L10n.analyzeStageCropping)
 
         let now = Date()
         let imageFileName = "scan-\(UUID().uuidString).jpg"

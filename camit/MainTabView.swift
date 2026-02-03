@@ -8,6 +8,7 @@ struct MainTabView: View {
     @State private var selectedTab: Tab = .papers
     @State private var isShowingCamera: Bool = false
     @State private var isAnalyzing: Bool = false
+    @State private var analyzingMessage: String = L10n.analyzing
     @State private var alertMessage: String?
     @State private var isShowingSettings: Bool = false
     /// 从试卷 TAB 转向错题 TAB 时，聚焦到此试卷并显示全部题目
@@ -40,7 +41,7 @@ struct MainTabView: View {
                     Color.black.opacity(0.25).ignoresSafeArea()
                     VStack(spacing: 12) {
                         ProgressView()
-                        Text(L10n.analyzing)
+                        Text(analyzingMessage)
                             .font(.subheadline.weight(.semibold))
                     }
                     .padding(18)
@@ -177,11 +178,22 @@ struct MainTabView: View {
             return
         }
 
+        analyzingMessage = L10n.analyzeStagePreparing
         isAnalyzing = true
         defer { isAnalyzing = false }
 
         do {
-            let item = try await store.analyzeAndAddScan(image: image, provider: settings.provider, config: cfg)
+            let item = try await store.analyzeAndAddScan(
+                image: image,
+                provider: settings.provider,
+                config: cfg,
+                progress: { message in
+                    // 确保在主线程更新 UI
+                    Task { @MainActor in
+                        analyzingMessage = message
+                    }
+                }
+            )
             if item == nil {
                 alertMessage = L10n.notPaperMessage
             }
