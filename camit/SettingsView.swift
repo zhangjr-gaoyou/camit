@@ -23,51 +23,27 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        Text(L10n.settingsProviderLabel)
-                        Spacer()
-                        Button {
-                            showHelpSheet = true
-                        } label: {
-                            Image(systemName: "questionmark.circle")
-                                .font(.title3)
-                                .foregroundStyle(.blue)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(L10n.settingsHelpTitle)
-                    }
-                    Picker(L10n.settingsProviderPicker, selection: $settings.provider) {
-                        Text("Bailian / Qwen").tag(LLMProvider.bailian)
-                        Text("OpenAI").tag(LLMProvider.openai)
-                        Text("Google Gemini").tag(LLMProvider.gemini)
-                    }
-                    .pickerStyle(.menu)
+            ScrollView {
+                VStack(spacing: 20) {
+                    providerSection
+                    providerConfigSection
+                    saveButton
+                    privacyNotice
                 }
-
-                providerConfigSection
-
-                Section {
-                    Button(L10n.settingsSave) { save() }
-                        .buttonStyle(.borderedProminent)
-                }
-
-                Section {
-                    Text(L10n.settingsConfigFooter)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                .padding(16)
             }
+            .background(AppTheme.pageBackground)
             .navigationTitle(L10n.settingsTitle)
             .toolbar {
 #if os(macOS)
                 ToolbarItem(placement: .cancellationAction) {
                     Button(L10n.settingsClose) { dismiss() }
+                        .foregroundStyle(AppTheme.accentBlue)
                 }
 #else
                 ToolbarItem(placement: .topBarLeading) {
                     Button(L10n.settingsClose) { dismiss() }
+                        .foregroundStyle(AppTheme.accentBlue)
                 }
 #endif
             }
@@ -99,67 +75,140 @@ struct SettingsView: View {
 #endif
     }
 
+    private var providerSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(L10n.settingsProviderLabel)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.secondaryText)
+                Spacer()
+                Button {
+                    showHelpSheet = true
+                } label: {
+                    Image(systemName: "questionmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(AppTheme.accentBlue)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.settingsHelpTitle)
+            }
+
+            Picker(L10n.settingsProviderPicker, selection: $settings.provider) {
+                Text("Bailian / Qwen").tag(LLMProvider.bailian)
+                Text("OpenAI").tag(LLMProvider.openai)
+                Text("Google Gemini").tag(LLMProvider.gemini)
+            }
+            .pickerStyle(.menu)
+        }
+        .padding(16)
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
+    }
+
     @ViewBuilder
     private var providerConfigSection: some View {
-        switch settings.provider {
-        case .bailian:
-            Section(L10n.settingsBailianSection) {
-                labeledField(L10n.settingsLabelApiKey) {
-                    SecureField("", text: $bailianApiKey)
-                        .modifier(PlatformTextContentTypePassword())
+        Group {
+            switch settings.provider {
+            case .bailian:
+                configPanel(title: L10n.settingsBailianSection) {
+                    labeledField(L10n.settingsLabelApiKey) {
+                        SecureField("", text: $bailianApiKey)
+                            .modifier(PlatformTextContentTypePassword())
+                    }
+                    labeledField(L10n.settingsLabelModel) {
+                        TextField("", text: $bailianModel)
+                            .modifier(PlatformTextInputTraits())
+                    }
+                    labeledField(L10n.settingsLabelVLModel) {
+                        TextField("", text: $bailianVLModel)
+                            .modifier(PlatformTextInputTraits())
+                    }
+                    labeledField(L10n.settingsLabelBaseURL) {
+                        TextField("", text: $bailianBaseURL)
+                            .modifier(PlatformTextInputTraits())
+                    }
                 }
-                labeledField(L10n.settingsLabelModel) {
-                    TextField("", text: $bailianModel)
-                        .modifier(PlatformTextInputTraits())
+            case .openai:
+                configPanel(title: L10n.settingsOpenAISection) {
+                    labeledField(L10n.settingsLabelApiKey) {
+                        SecureField("", text: $openAIApiKey)
+                            .modifier(PlatformTextContentTypePassword())
+                    }
+                    labeledField(L10n.settingsLabelOpenAIModel) {
+                        TextField("", text: $openAIModel)
+                            .modifier(PlatformTextInputTraits())
+                    }
+                    labeledField(L10n.settingsLabelVLModel) {
+                        TextField("", text: $openAIVLModel)
+                            .modifier(PlatformTextInputTraits())
+                    }
+                    labeledField(L10n.settingsLabelBaseURL) {
+                        TextField("", text: $openAIBaseURL)
+                            .modifier(PlatformTextInputTraits())
+                    }
                 }
-                labeledField(L10n.settingsLabelVLModel) {
-                    TextField("", text: $bailianVLModel)
-                        .modifier(PlatformTextInputTraits())
-                }
-                labeledField(L10n.settingsLabelBaseURL) {
-                    TextField("", text: $bailianBaseURL)
-                        .modifier(PlatformTextInputTraits())
-                }
-            }
-        case .openai:
-            Section(L10n.settingsOpenAISection) {
-                labeledField(L10n.settingsLabelApiKey) {
-                    SecureField("", text: $openAIApiKey)
-                        .modifier(PlatformTextContentTypePassword())
-                }
-                labeledField(L10n.settingsLabelOpenAIModel) {
-                    TextField("", text: $openAIModel)
-                        .modifier(PlatformTextInputTraits())
-                }
-                labeledField(L10n.settingsLabelVLModel) {
-                    TextField("", text: $openAIVLModel)
-                        .modifier(PlatformTextInputTraits())
-                }
-                labeledField(L10n.settingsLabelBaseURL) {
-                    TextField("", text: $openAIBaseURL)
-                        .modifier(PlatformTextInputTraits())
-                }
-            }
-        case .gemini:
-            Section(L10n.settingsGeminiSection) {
-                labeledField(L10n.settingsLabelApiKey) {
-                    SecureField("", text: $geminiApiKey)
-                        .modifier(PlatformTextContentTypePassword())
-                }
-                labeledField(L10n.settingsLabelGeminiModel) {
-                    TextField("", text: $geminiModel)
-                        .modifier(PlatformTextInputTraits())
-                }
-                labeledField(L10n.settingsLabelVLModel) {
-                    TextField("", text: $geminiVLModel)
-                        .modifier(PlatformTextInputTraits())
-                }
-                labeledField(L10n.settingsLabelBaseURL) {
-                    TextField("", text: $geminiBaseURL)
-                        .modifier(PlatformTextInputTraits())
+            case .gemini:
+                configPanel(title: L10n.settingsGeminiSection) {
+                    labeledField(L10n.settingsLabelApiKey) {
+                        SecureField("", text: $geminiApiKey)
+                            .modifier(PlatformTextContentTypePassword())
+                    }
+                    labeledField(L10n.settingsLabelGeminiModel) {
+                        TextField("", text: $geminiModel)
+                            .modifier(PlatformTextInputTraits())
+                    }
+                    labeledField(L10n.settingsLabelVLModel) {
+                        TextField("", text: $geminiVLModel)
+                            .modifier(PlatformTextInputTraits())
+                    }
+                    labeledField(L10n.settingsLabelBaseURL) {
+                        TextField("", text: $geminiBaseURL)
+                            .modifier(PlatformTextInputTraits())
+                    }
                 }
             }
         }
+    }
+
+    private func configPanel<C: View>(title: String, @ViewBuilder content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title.uppercased())
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.secondaryText)
+
+            VStack(alignment: .leading, spacing: 16) {
+                content()
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
+    }
+
+    private var saveButton: some View {
+        Button(L10n.settingsSave) { save() }
+            .font(.headline.weight(.semibold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(AppTheme.accentBlue)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
+    }
+
+    private var privacyNotice: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "info.circle.fill")
+                .font(.title3)
+                .foregroundStyle(AppTheme.accentBlue.opacity(0.8))
+            Text(L10n.settingsConfigFooter)
+                .font(.footnote)
+                .foregroundStyle(AppTheme.secondaryText)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
     }
 
     @ViewBuilder

@@ -1,8 +1,166 @@
 import Foundation
 
+/// 将田字格、米字格等书写格替换为下划线，确保填空位置正确（存储与展示时均可调用）
+func replaceTianziGeWithUnderline(_ content: String) -> String {
+    var s = content
+    for pattern in ["田字格", "米字格", "九宫格"] {
+        s = s.replacingOccurrences(of: pattern, with: "_____")
+    }
+    return s
+}
+
+/// 修复模型返回的 JSON 中常见错误，提高解析成功率
+func repairPaperVisionJson(_ json: String) -> String {
+    var s = json
+    // 1) 去掉 BOM
+    if s.hasPrefix("\u{FEFF}") {
+        s = String(s.dropFirst())
+    }
+    // 2) bbox 数值后多余引号，如 "height": 0.05" -> "height": 0.05
+    if let regex = try? NSRegularExpression(pattern: #"(\d+\.?\d*)"(\s*[,}\]\n])"#) {
+        let range = NSRange(s.startIndex..., in: s)
+        s = regex.stringByReplacingMatches(in: s, range: range, withTemplate: "$1$2")
+    }
+    // 3) 尾逗号：,} -> } 或 ,] -> ]
+    if let r1 = try? NSRegularExpression(pattern: #",(\s*})"#) {
+        s = r1.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "$1")
+    }
+    if let r2 = try? NSRegularExpression(pattern: #",(\s*])"#) {
+        s = r2.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "$1")
+    }
+    // 4) LaTeX \begin 被 JSON 的 \b 误解析为退格：$\begin -> $egin，必须最先修复
+    s = fixLatexBackslashInJson(s)
+    // 5) 字符串内的未转义换行：JSON 不允许字符串中有字面换行，需替换为 \n
+    s = escapeNewlinesInJsonStrings(s)
+    // 6) 无效转义序列：如 \346、\3 等非法转义，需将 \ 转为 \\ 使后续字符按字面解析
+    s = fixInvalidJsonEscapes(s)
+    // 7) 重复键：如 "subtype":"选题目","subtype":"选择题" 只保留最后一个
+    s = deduplicateJsonKeys(s)
+    return s
+}
+
+/// 修复 LaTeX 中 \begin 被 JSON 误解析：\b 在 JSON 中是退格符，导致 $\begin{cases} 变成 $egin{cases}
+/// 将未转义的 \begin{ 替换为 \\begin{
+private func fixLatexBackslashInJson(_ json: String) -> String {
+    var s = json
+    // 匹配 $\begin{、\n\begin{ 等（LaTeX 公式内），避免误改 \\begin{ 和 \beginning
+    let patterns = ["$\\begin{", "\n\\begin{", " \\begin{"]
+    for pattern in patterns {
+        let prefix = String(pattern.prefix(1))
+        s = s.replacingOccurrences(of: pattern, with: prefix + "\\\\begin{")
+    }
+    return s
+}
+
+/// 修复无效的 JSON 转义序列（如 \346、\3），将 \ 转为 \\ 使后续字符按字面解析
+private func fixInvalidJsonEscapes(_ json: String) -> String {
+    var result = ""
+    var i = json.startIndex
+    while i < json.endIndex {
+        let ch = json[i]
+        if ch == "\\" && json.index(after: i) < json.endIndex {
+            let next = json[json.index(after: i)]
+            let validEscapes = CharacterSet(charactersIn: "\"\\/bfnrtu")
+            if validEscapes.contains(next.unicodeScalars.first!) {
+                if next == "u" {
+                    let uStart = json.index(i, offsetBy: 2)
+                    let hexCount = min(4, json.distance(from: uStart, to: json.endIndex))
+                    let uEnd = json.index(uStart, offsetBy: hexCount)
+                    if hexCount == 4, uEnd <= json.endIndex {
+                        let hex = String(json[uStart..<uEnd])
+                        if hex.allSatisfy({ $0.isHexDigit }) {
+                            result.append(ch)
+                            result.append(next)
+                            result.append(hex)
+                            i = json.index(uEnd, offsetBy: -1)
+                        } else {
+                            result.append("\\\\")
+                        }
+                    } else {
+                        result.append("\\\\")
+                    }
+                } else {
+                    result.append(ch)
+                    result.append(next)
+                    i = json.index(after: i)
+                }
+            } else {
+                result.append("\\\\")
+            }
+        } else {
+            result.append(ch)
+        }
+        i = json.index(after: i)
+    }
+    return result
+}
+
+/// 去除重复的 subtype 键：如 "subtype":"选题目","subtype":"选择题" 保留后者
+private func deduplicateJsonKeys(_ json: String) -> String {
+    var s = json
+    if let r = try? NSRegularExpression(pattern: #""subtype"\s*:\s*"[^"]*"\s*,\s*"subtype"\s*:"#) {
+        let range = NSRange(s.startIndex..., in: s)
+        s = r.stringByReplacingMatches(in: s, range: range, withTemplate: "\"subtype\":")
+    }
+    return s
+}
+
+/// 将 JSON 字符串值中的字面换行替换为 \\n（仅处理双引号内的内容）
+private func escapeNewlinesInJsonStrings(_ json: String) -> String {
+    var result = ""
+    var inString = false
+    var i = json.startIndex
+    var prev: Character? = nil
+    while i < json.endIndex {
+        let ch = json[i]
+        if ch == "\"" && prev != "\\" {
+            inString.toggle()
+            result.append(ch)
+        } else if inString && (ch == "\n" || ch == "\r") {
+            result.append("\\n")
+            if ch == "\r" && json.index(after: i) < json.endIndex && json[json.index(after: i)] == "\n" {
+                i = json.index(after: i)
+            }
+        } else {
+            result.append(ch)
+        }
+        prev = ch
+        i = json.index(after: i)
+    }
+    return result
+}
+
+/// 通用 JSON 修复（用于 PaperValidationResult、QuestionAnalysisResult 等）
+func repairJsonForParsing(_ json: String) -> String {
+    var s = json
+    if s.hasPrefix("\u{FEFF}") { s = String(s.dropFirst()) }
+    s = fixLatexBackslashInJson(s)
+    if let r1 = try? NSRegularExpression(pattern: #"(\d+\.?\d*)"(\s*[,}\]\n])"#) {
+        s = r1.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "$1$2")
+    }
+    if let r2 = try? NSRegularExpression(pattern: #",(\s*})"#) {
+        s = r2.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "$1")
+    }
+    if let r3 = try? NSRegularExpression(pattern: #",(\s*])"#) {
+        s = r3.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "$1")
+    }
+    s = escapeNewlinesInJsonStrings(s)
+    s = fixInvalidJsonEscapes(s)
+    s = deduplicateJsonKeys(s)
+    return s
+}
+
+/// 打印模型返回的原始内容到 console，便于排查 JSON 解析等问题。在 Xcode Console 中搜索 [camit:model] 过滤。
+func debugLogModelResponse(api: String, content: String) {
+    let prefix = "[camit:model] "
+    print("\(prefix)===== \(api) 模型返回 (length: \(content.count)) =====")
+    print(content)
+    print("\(prefix)===== End \(api) =====")
+}
+
 func extractFirstJSONObject(from text: String) -> String? {
-    let cleaned = text
-        .replacingOccurrences(of: "```json", with: "```")
+    var cleaned = text
+        .replacingOccurrences(of: "```json", with: "```", options: .caseInsensitive)
         .replacingOccurrences(of: "```", with: "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
     guard let start = cleaned.firstIndex(of: "{") else { return nil }
@@ -26,13 +184,28 @@ func extractFirstJSONObject(from text: String) -> String? {
 
 let paperAnalysisSystemPromptText = """
 你是一个 OCR + 文档理解助手。你的任务：
-1) 判断图片是否为"作业/试卷"（包含题目、题干、编号等）。
-2) 如果是，按顺序抽取内容，并对每一项标注类型：
-   - "板块分类"：如"一、选择题""二、填空题"、大题板块名等；
-   - "题干"：阅读材料、共用题干、不包含选项的提问句等。例如选择题中"下列……一项是（ ）""下列……最恰当的一项是（ ）"这类只有问句、没有 A/B/C/D 选项的部分，必须标为题干；
-   - "题目"：需要单独作答的一道小题，包含选项时则整道题（含 A/B/C/D 选项）为一条题目。
-3) 填空题中的下划线"_"或"____"表示需要填空的位置，必须在 content 中明确保留并标识。做法：原样保留下划线，或在填空处用【填空】_____【/填空】标出，以便前端明显区分填空位。
-4) 如果图片中能看出总分或得分，请给出 0-100 的整数分数；无法确定则 null。
+1) 判断图片是否为「作业/试卷」（包含题目、题干、编号等），一份试卷可能由 1 张或多张图片组成。
+2) 如果是，按在整份试卷中的阅读顺序抽取内容，并对每一项标注类型：
+   - "板块分类"：如「一、选择题」「二、填空题」等大题板块名；
+   - "答题说明"：紧跟在某个板块标题之后，或者与板块标题在同一行括号中的整段说明文字，例如「(本题共 12 小题，每小题 2 分……)」；
+   - "题干"：阅读材料、共用题干、不包含选项的提问句等。例如选择题中「下列……一项是（ ）」「下列……最恰当的一项是（ ）」这类只有问句、没有 A/B/C/D 选项的部分，必须标为题干；
+   - "题目"：需要单独作答的一道小题。**每道小题必须单独作为一条 items，不可将多道题合并为一条。** 若连续出现「1.」「2.」「3.」等不同题号，应拆分为多条题目。无论题型如何，都统一标为 type=题目，同时必须对 type=题目 的项标注 subtype（题型），取值为：选择题、填空题、判断题、简答题、计算题、匹配题、论述题、阅读理解、其他（无法判断时用「其他」）。
+3) **数学公式与化学方程式**：题目内容中涉及的所有数学公式、化学方程式、物理公式等，必须用 LaTeX 格式包裹。示例：质量能量公式 $E=mc^2$，分数 $\\frac{1}{2}$，根号 $\\sqrt{x}$，化学式 $H_2O$、$2H_2+O_2\\rightarrow 2H_2O$，下标 $x_1$、上标 $x^2$。不可用纯文字描述公式，必须用 $...$ 包裹。
+4) 填空题中的下划线「_」「____」表示需要填空的位置，必须在 content 中明确保留并标识。做法：原样保留下划线，或在填空处用【填空】_____【/填空】标出，以便前端明显区分填空位。当填空区域为田字格、米字格等书写格时，在 content 中一律用下划线 _____ 或【填空】_____【/填空】表示，不要保留「田字格」「米字格」等描述，等同于下划线填空。
+5) 如果图片中能看出总分或得分，请给出 0-100 的整数分数；无法确定则 null。
+6) 当选择题的选项为图形（如图片、示意图）而非文字时，content 中用 [图片A]、[图片B]、[图片C]、[图片D] 等占位符表示各选项，且该题目的 bbox 必须完整覆盖题干及所有选项图片在试卷中的实际区域，确保切图能完整展示题目内容，前端将直接显示切图而非占位符。
+7) 请根据常见题型，对 type=题目 的 content 做结构化组织（仅在 content 内体现题型含义，不改变 type 字段）：
+   - 选择题：先给出题干句子，再按行列出选项，格式必须为「A. ……」「B. ……」「C. ……」「D. ……」（若有更多选项继续用 E./F.）；题干中不要包含答案。
+   - 填空题：题干中所有需要填写的空位，使用下划线或【填空】_____【/填空】标出，不要给出正确答案。
+   - 判断题：content 中给出需要判断对/错的完整陈述句，不要直接透露「正确/错误」答案。
+   - 简答题：content 中给出完整的提问句或要求（例如「简要说明……」「为什么……」），不包含参考答案，只保留题目本身。
+   - 匹配题：在一条题目中同时给出「前提列」和「反应列」以及匹配指令，例如：
+     前提列：1. ……\\n2. ……\\n3. ……
+     反应列：A. ……\\nB. ……\\nC. ……
+     匹配指令：请将前提与反应正确连线。
+   - 论述题 / 解答题：content 中给出题干、作答要求等文字（如「请结合材料……写一篇不少于 600 字的文章」），不要给出评分标准或参考答案。
+   - 计算题：content 中给出完整的题干和计算要求，涉及数字、公式、方程时一律用 LaTeX 表示，如 $x^2+2x+1=0$。
+8) 对于每个大题板块（如「选择题」「填空题」）的答题说明文字（例如「本题共 12 小题，每小题 2 分，计 24 分。每小题只有一个选项符合题意。」），无论它是写在板块标题同一行的括号中，还是单独写在下一行，都请**单独作为一条 items 输出**，type 必须为 "答题说明"，content 为该说明文字，并放在对应的板块分类之后（紧邻该板块，且在该板块下第一道小题之前）。
 
 题干与题目的正确示例（必须按此规则识别）：
 - 题干：下列词语中加点字的读音，字形完全正确的一项是（ ）
@@ -48,19 +221,47 @@ let paperAnalysisSystemPromptText = """
   "items": [ 
     {"type": "板块分类", "content": "一、选择题", "bbox": {"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.05}},
     {"type": "题干", "content": "下列...一项是（ ）", "bbox": {"x": 0.1, "y": 0.25, "width": 0.8, "height": 0.08}},
-    {"type": "题目", "content": "A. ...\\\\nB. ...\\\\nC. ...\\\\nD. ...", "bbox": {"x": 0.1, "y": 0.33, "width": 0.8, "height": 0.15}}
+    {"type": "题目", "subtype": "选择题", "content": "A. ...\\\\nB. ...\\\\nC. ...\\\\nD. ...", "bbox": {"x": 0.1, "y": 0.33, "width": 0.8, "height": 0.15}}
   ],
   "score": 86 或 null
 }
-type 只能是 "板块分类"、"题干"、"题目" 之一。
-bbox 为该项在图片中的边界框，坐标为归一化值（0-1）：x/y 为左上角相对位置，width/height 为相对宽高。如果无法确定位置可省略 bbox。
+type 只能是 "板块分类"、"答题说明"、"题干"、"题目" 之一。当 type=题目 时，必须包含 subtype 字段，取值为：选择题、填空题、判断题、简答题、计算题、匹配题、论述题、阅读理解、其他。
+bbox 为该项在图片中的边界框，坐标为归一化值（0-1）：x/y 为左上角相对位置，width/height 为相对宽高。如果无法确定位置可省略 bbox。当题目选项为图形（如 [图片A] 等）时，bbox 必须覆盖题干+所有选项图片的完整区域。
 """
 
 /// 重试时追加到解析提示词后的强调说明
 let paperAnalysisPromptSuffixForRetry = """
 
-【重要】请特别注意：1) 题干与题目必须严格区分——问句单独标为题干，含 A/B/C/D 选项的整体标为题目；2) 每项的 bbox 须完整覆盖该内容在图片中的区域，勿遗漏。
+【重要】请特别注意：1) 题干与题目必须严格区分——问句单独标为题干，含 A/B/C/D 选项的整体标为题目；2) 每道小题必须单独作为一条 items，不可合并（如「1.」与「2.」为两道题）；3) type=题目 时必须标注 subtype（选择题/填空题/简答题/计算题/匹配题等）；4) 数学公式、化学方程式必须用 LaTeX 格式 $...$ 包裹；5) 田字格、米字格等填空格一律用下划线或【填空】_____【/填空】表示；6) 每项的 bbox 须完整覆盖该内容在图片中的区域；7) 当题目选项为图形（[图片A] 等）时，bbox 必须覆盖题干及所有选项图片的完整区域。
 """
+
+/// 题目解析提示词：要求生成结构化解析（知识点 + 详细解析）
+func questionAnalysisPrompt(question: String, subject: String, grade: String) -> String {
+    """
+    你是一个 \(subject) 老师，面向 \(grade) 学生。请针对下面一道题目给出结构化的解析。
+
+    题目：
+    \(question)
+
+    要求：
+    1. 判断这道题所属的考查板块/题型，例如："选择题"、"填空题"、"解答题"、"阅读理解" 等。
+    2. 给出这道题的标准答案（尽量简洁）。
+    3. 给出结构化的解析，必须包含以下部分：
+       - 【知识点】：结合试卷科目（\(subject)）和年级（\(grade)），用 2～4 个简短词语或短语（每项 4 字以内），用顿号或中文逗号分隔，如：声学、温度计、蒸发、比热容
+       - 【详细解析】：分三步呈现
+         1) 题干理解：简要说明题目在问什么。
+         2) 选项分析：若为选择题，逐条分析各选项（A/B/C/D），每项一行，以 • 或 - 开头；非选择题则分析解题要点。
+         3) 结论：给出最终答案或解题结论，如：故选D。
+
+    严格只返回 JSON（不要加解释、不要代码块），格式如下：
+    {
+      "section": "选择题 或 解答题 等，若无法判断则为 null",
+      "answer": "标准答案",
+      "explanation": "【知识点】声学、温度计、蒸发\\n\\n【详细解析】\\n1) 题干理解：...\\n2) 选项分析：\\n• A. ...\\n• B. ...\\n3) 结论：故选D。"
+    }
+    explanation 必须包含【知识点】和【详细解析】两个部分，格式如上。【知识点】不超过 4 个，用简短语句。
+    """
+}
 
 /// 校验解析结果时的用户消息前缀，后面拼接 itemsSummary
 func paperValidationUserMessage(itemsSummary: String) -> String {

@@ -155,6 +155,8 @@ struct PaperQuestion: Identifiable, Codable, Equatable {
     var index: Int?
     /// 板块分类 / 题干 / 题目
     var kind: String?
+    /// 题型（仅 kind=题目 时有效）：选择题、填空题、简答题、计算题、匹配题、判断题、论述题、阅读理解、其他
+    var subtype: String?
     var section: String?
     var text: String
     var answer: String?

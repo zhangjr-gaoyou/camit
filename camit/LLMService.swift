@@ -31,17 +31,17 @@ enum LLMService {
         }
     }
 
-    static func analyzeQuestion(question: String, subject: Subject, provider: LLMProvider, config: any LLMConfigProtocol) async throws -> QuestionAnalysisResult {
+    static func analyzeQuestion(question: String, subject: Subject, grade: Grade, provider: LLMProvider, config: any LLMConfigProtocol) async throws -> QuestionAnalysisResult {
         switch provider {
         case .bailian:
             guard let c = config as? BailianConfig else { throw BailianError.invalidBaseURL }
-            return try await BailianClient().analyzeQuestion(question: question, subject: subject, config: c)
+            return try await BailianClient().analyzeQuestion(question: question, subject: subject, grade: grade, config: c)
         case .openai:
             guard let c = config as? OpenAIConfig else { throw BailianError.invalidBaseURL }
-            return try await OpenAIClient().analyzeQuestion(question: question, subject: subject, config: c)
+            return try await OpenAIClient().analyzeQuestion(question: question, subject: subject, grade: grade, config: c)
         case .gemini:
             guard let c = config as? GeminiConfig else { throw BailianError.invalidBaseURL }
-            return try await GeminiClient().analyzeQuestion(question: question, subject: subject, config: c)
+            return try await GeminiClient().analyzeQuestion(question: question, subject: subject, grade: grade, config: c)
         }
     }
 }

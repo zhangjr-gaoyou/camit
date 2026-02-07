@@ -106,19 +106,19 @@ struct MainTabView: View {
 
             tabButton(
                 title: L10n.tabWrong,
-                systemName: "list.bullet.clipboard",
+                systemName: "exclamationmark.square",
                 isSelected: selectedTab == .wrong
             ) {
                 selectedTab = .wrong
             }
         }
         .padding(.horizontal, 28)
-        .padding(.top, 10)
-        .padding(.bottom, 10)
-        .background(.ultraThinMaterial)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background(AppTheme.cardBackground)
         .overlay(alignment: .top) {
             Rectangle()
-                .fill(Color.secondary.opacity(0.20))
+                .fill(Color(.separator))
                 .frame(height: 0.5)
         }
     }
@@ -127,11 +127,11 @@ struct MainTabView: View {
         Button(action: action) {
             VStack(spacing: 6) {
                 Image(systemName: systemName)
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 20, weight: .medium))
                 Text(title)
                     .font(.caption)
             }
-            .foregroundStyle(isSelected ? Color.blue : Color.secondary)
+            .foregroundStyle(isSelected ? AppTheme.accentBlue : AppTheme.secondaryText)
         }
         .accessibilityLabel(title)
     }
@@ -149,9 +149,9 @@ struct MainTabView: View {
             VStack(spacing: 6) {
                 ZStack {
                     Circle()
-                        .fill(Color.blue)
+                        .fill(AppTheme.accentBlue)
                         .frame(width: 62, height: 62)
-                        .shadow(color: .black.opacity(0.12), radius: 10, x: 0, y: 6)
+                        .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 6)
 
                     Image(systemName: "camera.fill")
                         .foregroundStyle(.white)
@@ -159,8 +159,8 @@ struct MainTabView: View {
                 }
                 Text(L10n.tabCamera)
                     .font(.caption)
-                    .foregroundStyle(Color.secondary)
-            }
+                    .foregroundStyle(AppTheme.secondaryText)
+        }
         }
         .accessibilityLabel("拍照")
         .accessibilityHint("打开相机拍照扫描")

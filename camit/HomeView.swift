@@ -81,10 +81,11 @@ struct HomeView: View {
                     section(title: L10n.homeLastWeek, items: lastWeekItems)
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 24)
+                .padding(.bottom, 100)
             }
         }
         .padding(.top, 8)
+        .background(AppTheme.pageBackground)
         .sheet(isPresented: $isShowingSettings) {
             SettingsView(settings: settings)
 #if !os(macOS)
@@ -209,11 +210,11 @@ struct HomeView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .center, spacing: 10) {
             Image("AppLogo")
                 .resizable()
                 .scaledToFit()
-                .frame(width: 40, height: 40)
+                .frame(height: 22)
 
             Text(L10n.appTitle)
                 .font(.title3.weight(.semibold))
@@ -234,15 +235,15 @@ struct HomeView: View {
     private var searchBar: some View {
         HStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppTheme.secondaryText)
             TextField(L10n.searchPlaceholder, text: $searchText)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .background(Color.secondary.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(Color(.tertiarySystemFill))
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
         .padding(.horizontal, 16)
     }
 
@@ -261,8 +262,8 @@ struct HomeView: View {
                     .foregroundStyle(isAllScanSelected ? .white : .primary)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(isAllScanSelected ? Color.blue : Color.secondary.opacity(0.10))
-                    .clipShape(Capsule())
+                    .background(isAllScanSelected ? AppTheme.accentBlue : AppTheme.cardBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.chipCornerRadius, style: .continuous))
             }
 
             Menu {
@@ -295,9 +296,10 @@ struct HomeView: View {
     }
 
     private func section(title: String, items: [ScanItem]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(title)
-                .font(.title3.weight(.bold))
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.primary)
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
                 ForEach(items) { item in
@@ -331,10 +333,10 @@ private struct CircleIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
+                .font(.system(size: 18, weight: .medium))
                 .foregroundStyle(.primary)
-                .frame(width: 18, height: 18)
-                .padding(12)
-                .background(Color.secondary.opacity(0.10))
+                .frame(width: 36, height: 36)
+                .background(Color(.tertiarySystemFill))
                 .clipShape(Circle())
         }
     }
@@ -347,17 +349,17 @@ private struct FilterChip: View {
     var body: some View {
         HStack(spacing: 6) {
             Text(title)
-                .font(.subheadline.weight(.semibold))
+                .font(.subheadline.weight(.medium))
             if showsChevron {
                 Image(systemName: "chevron.down")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(AppTheme.secondaryText)
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(Color.secondary.opacity(0.10))
-        .clipShape(Capsule())
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.chipCornerRadius, style: .continuous))
         .foregroundStyle(.primary)
     }
 }
@@ -378,15 +380,16 @@ private struct ScanCardView: View {
             ZStack(alignment: .topLeading) {
                 cardImageStack
                     .frame(height: cardHeight)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
 
                 Text(item.subject.displayName)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(Color(hex: item.subject.badgeColorHex))
+                    .foregroundStyle(.white)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
-                    .background(Color.white.opacity(0.92))
-                    .clipShape(Capsule())
+                    .frame(minHeight: 28)
+                    .background(Color(hex: item.subject.badgeColorHex).opacity(0.95))
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .padding(10)
 
                 if item.imageFileNames.count > 1 {
@@ -394,11 +397,11 @@ private struct ScanCardView: View {
                         HStack {
                             Spacer()
                             Image(systemName: "doc.on.doc")
-                                .font(.subheadline.weight(.semibold))
+                                .font(.caption.weight(.semibold))
                                 .foregroundStyle(.white)
-                                .padding(8)
+                                .frame(width: 28, height: 28)
                                 .background(Color.black.opacity(0.5))
-                                .clipShape(Circle())
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                                 .padding(10)
                         }
                         Spacer()
@@ -424,13 +427,18 @@ private struct ScanCardView: View {
 
             Text(item.title)
                 .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
                 .lineLimit(1)
                 .onTapGesture(perform: onTapTitle)
 
             Text("\(relativeTime(item.createdAt)) · \(item.grade.displayName)")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(AppTheme.secondaryText)
         }
+        .padding(12)
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
+        .shadow(color: .black.opacity(AppTheme.cardShadowOpacity), radius: AppTheme.cardShadowRadius, x: 0, y: AppTheme.cardShadowY)
         .contentShape(Rectangle())
         .onLongPressGesture(perform: onLongPress)
     }

@@ -81,11 +81,12 @@ struct GeminiClient {
               let content = decoded.candidates?.first?.content?.parts?.first?.text else {
             throw BailianError.emptyResponse
         }
-
-        let jsonText = extractFirstJSONObject(from: content) ?? content
+        debugLogModelResponse(api: "analyzePaper", content: content)
+        var jsonText = extractFirstJSONObject(from: content) ?? content
+        jsonText = repairPaperVisionJson(jsonText)
         guard let jsonData = jsonText.data(using: .utf8),
               let result = try? JSONDecoder().decode(PaperVisionResult.self, from: jsonData) else {
-            throw BailianError.invalidResponseJSON
+            throw BailianError.invalidResponseJSON(raw: content)
         }
         return result
     }
@@ -129,7 +130,9 @@ struct GeminiClient {
               let content = decoded.candidates?.first?.content?.parts?.first?.text else {
             throw BailianError.emptyResponse
         }
-        let jsonText = extractFirstJSONObject(from: content) ?? content
+        debugLogModelResponse(api: "validatePaperResult", content: content)
+        var jsonText = extractFirstJSONObject(from: content) ?? content
+        jsonText = repairJsonForParsing(jsonText)
         guard let jsonData = jsonText.data(using: .utf8),
               let result = try? JSONDecoder().decode(PaperValidationResult.self, from: jsonData) else {
             return PaperValidationResult(valid: true, score: 80, issues: nil)
@@ -137,37 +140,22 @@ struct GeminiClient {
         return result
     }
 
-    func analyzeQuestion(question: String, subject: Subject, config: GeminiConfig) async throws -> QuestionAnalysisResult {
-        let prompt = questionAnalysisPrompt(question: question, subject: subject)
+    func analyzeQuestion(question: String, subject: Subject, grade: Grade, config: GeminiConfig) async throws -> QuestionAnalysisResult {
+        let prompt = questionAnalysisPrompt(question: question, subject: subject.rawValue, grade: grade.rawValue)
         let text = try await chat(prompt: prompt, config: config)
-        let jsonText = extractFirstJSONObject(from: text) ?? text
-        guard let data = jsonText.data(using: .utf8) else { throw BailianError.invalidResponseJSON }
-        return try JSONDecoder().decode(QuestionAnalysisResult.self, from: data)
+        debugLogModelResponse(api: "analyzeQuestion", content: text)
+        var jsonText = extractFirstJSONObject(from: text) ?? text
+        jsonText = repairJsonForParsing(jsonText)
+        guard let data = jsonText.data(using: .utf8) else { throw BailianError.invalidResponseJSON(raw: text) }
+        do {
+            return try JSONDecoder().decode(QuestionAnalysisResult.self, from: data)
+        } catch {
+            throw BailianError.invalidResponseJSON(raw: text)
+        }
     }
 
     private func paperAnalysisSystemPrompt() -> String {
         paperAnalysisSystemPromptText
-    }
-
-    private func questionAnalysisPrompt(question: String, subject: Subject) -> String {
-        """
-        你是一个 \(subject.rawValue) 老师，请针对下面一道题目给出结构化的解析。
-
-        题目：
-        \(question)
-
-        要求：
-        1. 判断这道题所属的考查板块/题型，例如："选择题"、"填空题"、"解答题"、"阅读理解" 等。
-        2. 给出这道题的标准答案（尽量简洁）。
-        3. 给出分步、清晰的解析过程，帮助学生理解解题思路。
-
-        严格只返回 JSON（不要加解释、不要代码块），格式如下：
-        {
-          "section": "选择题 或 解答题 等，若无法判断则为 null",
-          "answer": "标准答案",
-          "explanation": "详细解析"
-        }
-        """
     }
 }
 

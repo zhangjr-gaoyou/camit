@@ -15,7 +15,7 @@ enum L10n {
     static var settingsApiKeyRequired: String { isChinese ? "请先在设置里填写 API Key。" : "Please configure API Key in Settings first." }
     static var settingsVLModelRequired: String { isChinese ? "请先在设置里填写 VL 模型名称。" : "Please configure VL model name in Settings first." }
     static var settingsConfigRequiredForCamera: String { isChinese ? "请先在设置中配置当前服务的 API Key 及 VL 模型后再拍照。" : "Please configure API Key and VL model for the current provider in Settings before taking a photo." }
-    static var settingsConfigFooter: String { isChinese ? "配置会保存到应用支持目录下。" : "Config is saved to application support directory." }
+    static var settingsConfigFooter: String { isChinese ? "配置会保存到应用支持目录下。您的 API Key 仅保存在本地设备，不会上传到我们的服务器。" : "Config is saved to application support directory. Your API Key is stored locally only and never uploaded." }
 
     static var settingsProviderLabel: String { isChinese ? "大模型服务" : "LLM Provider" }
     static var settingsProviderPicker: String { isChinese ? "选择服务" : "Select provider" }
@@ -102,8 +102,11 @@ enum L10n {
     static var wrongNoCrop: String { isChinese ? "暂无错题" : "No wrong questions" }
     static var wrongShowAll: String { isChinese ? "显示全部题目" : "Show all questions" }
     static var wrongLoadCropFailed: String { isChinese ? "无法加载切图" : "Cannot load crop" }
+    static var wrongGraphicCropMissing: String { isChinese ? "题目为图形，切图未保存，请重新拍照解析" : "Graphic question, crop not saved. Re-scan to get image." }
     static var wrongNavigateTo: String { isChinese ? "转向错题" : "Go to Wrong" }
     static var wrongShowAllPapers: String { isChinese ? "显示全部试卷" : "Show all papers" }
+    static func wrongQuestionNum(_ n: Int) -> String { isChinese ? "第\(n)题" : "Q\(n)" }
+    static var wrongChoiceTag: String { isChinese ? "选择题" : "Multiple Choice" }
 
     // MARK: - Camera
     static var cameraCancel: String { isChinese ? "取消" : "Cancel" }

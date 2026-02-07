@@ -2,6 +2,8 @@ import Foundation
 import UIKit
 @preconcurrency import Combine
 
+private let parseSuccessScoreThreshold = 75
+
 @MainActor
 final class ScanStore: ObservableObject {
     @Published private(set) var items: [ScanItem] = []
@@ -30,7 +32,7 @@ final class ScanStore: ObservableObject {
 
         var bestResult: PaperVisionResult?
         var bestScore: Int = -1
-        var bestItemsToUse: [(type: String, content: String, bbox: BBox?)] = []
+        var bestItemsToUse: [(type: String, subtype: String?, content: String, bbox: BBox?)] = []
 
         for attempt in 0..<3 {
             let current = attempt + 1
@@ -48,7 +50,8 @@ final class ScanStore: ObservableObject {
                 continue
             }
             let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
-            let itemsSummary = itemsToUse.map { "[\($0.type)] \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
+            debugPrintParseItems(attempt: current, rawItems: result.normalizedItems, normalizedItems: itemsToUse, phase: "VL+normalize")
+            let itemsSummary = itemsToUse.map { "[\($0.type)]\($0.subtype.map { "/\($0)" } ?? "") \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
             let validation: PaperValidationResult
             do {
                 progress?(L10n.analyzeStageValidating(current: current, total: 3))
@@ -63,12 +66,16 @@ final class ScanStore: ObservableObject {
                 bestResult = result
                 bestItemsToUse = itemsToUse
             }
+            if score >= parseSuccessScoreThreshold {
+                break
+            }
         }
 
         guard let result = bestResult, !bestItemsToUse.isEmpty else {
             return nil
         }
 
+        debugPrintParseItems(attempt: nil, rawItems: [], normalizedItems: bestItemsToUse, phase: "analyzeAndAddScan final")
         progress?(L10n.analyzeStageCropping)
 
         let now = Date()
@@ -82,10 +89,15 @@ final class ScanStore: ObservableObject {
         let totalCount = bestItemsToUse.count
         let questions: [PaperQuestion] = bestItemsToUse.enumerated().map { idx, item in
             let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx, totalCount: totalCount, provider: provider)
+            let isQuestionItem = normalizeItemType(item.type) == "题目"
+            let idxValue: Int? = isQuestionItem ? (idx + 1) : nil
+            let processedContent = replaceTianziGeWithUnderline(item.content)
+            debugPrintQuestionCreated(index: idx + 1, kind: item.type, subtype: item.subtype, text: processedContent)
             return PaperQuestion(
-                index: idx + 1,
+                index: idxValue,
                 kind: item.type,
-                text: item.content,
+                subtype: item.subtype,
+                text: processedContent,
                 isWrong: false,
                 cropImageFileName: cropFileName
             )
@@ -153,7 +165,7 @@ final class ScanStore: ObservableObject {
 
         var bestResult: PaperVisionResult?
         var bestScore: Int = -1
-        var bestItemsToUse: [(type: String, content: String, bbox: BBox?)] = []
+        var bestItemsToUse: [(type: String, subtype: String?, content: String, bbox: BBox?)] = []
 
         for attempt in 0..<3 {
             let current = attempt + 1
@@ -168,7 +180,8 @@ final class ScanStore: ObservableObject {
             }
             guard result.is_homework_or_exam else { continue }
             let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
-            let itemsSummary = itemsToUse.map { "[\($0.type)] \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
+            debugPrintParseItems(attempt: current, rawItems: result.normalizedItems, normalizedItems: itemsToUse, phase: "addImage VL+normalize")
+            let itemsSummary = itemsToUse.map { "[\($0.type)]\($0.subtype.map { "/\($0)" } ?? "") \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
             let validation: PaperValidationResult
             do {
                 progress?(L10n.analyzeStageValidating(current: current, total: 3))
@@ -183,10 +196,14 @@ final class ScanStore: ObservableObject {
                 bestResult = result
                 bestItemsToUse = itemsToUse
             }
+            if score >= parseSuccessScoreThreshold {
+                break
+            }
         }
 
         guard bestResult != nil, !bestItemsToUse.isEmpty else { return }
 
+        debugPrintParseItems(attempt: nil, rawItems: [], normalizedItems: bestItemsToUse, phase: "addImage final")
         progress?(L10n.analyzeStageCropping)
 
         let fileName = "scan-\(UUID().uuidString).jpg"
@@ -198,12 +215,17 @@ final class ScanStore: ObservableObject {
         let startIndex = items[i].questions.count
         let totalCount = bestItemsToUse.count
         let newQuestions: [PaperQuestion] = bestItemsToUse.enumerated().map { idx, item in
-            // index 仅表示当前图片中的题目序号（0-based），避免在无 bbox 回退时越界
+            // index 仅用于可作答小题（type=题目），表示整份试卷中的题号
             let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx, totalCount: totalCount, provider: provider)
+            let isQuestionItem = normalizeItemType(item.type) == "题目"
+            let idxValue: Int? = isQuestionItem ? (startIndex + idx + 1) : nil
+            let processedContent = replaceTianziGeWithUnderline(item.content)
+            debugPrintQuestionCreated(index: startIndex + idx + 1, kind: item.type, subtype: item.subtype, text: processedContent)
             return PaperQuestion(
-                index: startIndex + idx + 1,
+                index: idxValue,
                 kind: item.type,
-                text: item.content,
+                subtype: item.subtype,
+                text: processedContent,
                 isWrong: false,
                 cropImageFileName: cropFileName
             )
@@ -275,38 +297,80 @@ final class ScanStore: ObservableObject {
         return dir.appendingPathComponent(fileName, isDirectory: false)
     }
 
-    /// 按供应商规范化项列表：Bailian 原样返回；Gemini/OpenAI 统一 type 为「板块分类/题干/题目」并合并题干+题目为一条
-    private func normalizeItemsForProvider(
-        _ provider: LLMProvider,
-        _ items: [(type: String, content: String, bbox: BBox?)]
-    ) -> [(type: String, content: String, bbox: BBox?)] {
-        switch provider {
-        case .bailian:
-            return items
-        case .gemini, .openai:
-            return normalizeAndMergeStemItem(items: items)
+    /// 调试：打印解析内容到 console，便于排查题干/选项合并等问题
+    private func debugPrintParseItems(
+        attempt: Int?,
+        rawItems: [(type: String, subtype: String?, content: String, bbox: BBox?)],
+        normalizedItems: [(type: String, subtype: String?, content: String, bbox: BBox?)],
+        phase: String
+    ) {
+        let prefix = "[camit] "
+        let attStr = attempt.map { " attempt \($0)" } ?? ""
+        print("\(prefix)===== Parse \(phase)\(attStr) =====")
+        if !rawItems.isEmpty {
+            print("\(prefix)Raw VL items (\(rawItems.count)):")
+            for (i, it) in rawItems.enumerated() {
+                let sub = it.subtype.map { "/\($0)" } ?? ""
+                let preview = String(it.content.prefix(120)).replacingOccurrences(of: "\n", with: " ")
+                print("\(prefix)  [\(i + 1)] type=\(it.type)\(sub) | \(preview)\(it.content.count > 120 ? "…" : "")")
+            }
         }
+        print("\(prefix)Normalized items (\(normalizedItems.count)):")
+        for (i, it) in normalizedItems.enumerated() {
+            let sub = it.subtype.map { "/\($0)" } ?? ""
+            let preview = String(it.content.prefix(200)).replacingOccurrences(of: "\n", with: "↵")
+            print("\(prefix)  [\(i + 1)] type=\(it.type)\(sub) | \(preview)\(it.content.count > 200 ? "…" : "")")
+        }
+        print("\(prefix)===== End \(phase) =====")
     }
 
-    /// 统一 type 为「板块分类/题干/题目」，并将连续的 题干+题目 合并为一条 题目（同卡展示）
-    private func normalizeAndMergeStemItem(
-        items: [(type: String, content: String, bbox: BBox?)]
-    ) -> [(type: String, content: String, bbox: BBox?)] {
-        let normalized: [(type: String, content: String, bbox: BBox?)] = items.map { item in
+    private func debugPrintQuestionCreated(index: Int, kind: String, subtype: String?, text: String) {
+        let sub = subtype.map { "/\($0)" } ?? ""
+        let preview = String(text.prefix(150)).replacingOccurrences(of: "\n", with: "↵")
+        print("[camit] Question[\(index)] kind=\(kind)\(sub) | \(preview)\(text.count > 150 ? "…" : "")")
+    }
+
+    /// 按供应商规范化项列表，统一 type 并合并题干+题目（或两道「题目」中题干+选项）为一条
+    private func normalizeItemsForProvider(
+        _ provider: LLMProvider,
+        _ items: [(type: String, subtype: String?, content: String, bbox: BBox?)]
+    ) -> [(type: String, subtype: String?, content: String, bbox: BBox?)] {
+        let normalized: [(type: String, subtype: String?, content: String, bbox: BBox?)] = items.map { item in
             let t = normalizeItemType(item.type)
-            return (t, item.content, item.bbox)
+            return (t, item.subtype, item.content, item.bbox)
         }
-        var result: [(type: String, content: String, bbox: BBox?)] = []
+        return normalizeAndMergeStemItem(items: normalized)
+    }
+
+    /// 统一 type 为「板块分类/题干/题目」，合并：1) 题干+题目；2) 两道题目（前者仅题干、后者仅 A/B/C/D 选项）为一条
+    private func normalizeAndMergeStemItem(
+        items: [(type: String, subtype: String?, content: String, bbox: BBox?)]
+    ) -> [(type: String, subtype: String?, content: String, bbox: BBox?)] {
+        var result: [(type: String, subtype: String?, content: String, bbox: BBox?)] = []
         var i = 0
-        while i < normalized.count {
-            let current = normalized[i]
-            if current.type == "题干", i + 1 < normalized.count, normalized[i + 1].type == "题目" {
-                let next = normalized[i + 1]
+        while i < items.count {
+            let current = items[i]
+            if current.type == "题干", i + 1 < items.count, items[i + 1].type == "题目",
+               !contentStartsNewQuestionNumber(items[i + 1].content) {
+                let next = items[i + 1]
                 let mergedContent = current.content.trimmingCharacters(in: .whitespacesAndNewlines)
                     + "\n\n"
                     + next.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 let mergedBbox = unionBBox(current.bbox, next.bbox)
-                result.append(("题目", mergedContent, mergedBbox))
+                result.append(("题目", next.subtype, mergedContent, mergedBbox))
+                i += 2
+                continue
+            }
+            if current.type == "题目", i + 1 < items.count, items[i + 1].type == "题目",
+               contentLooksLikeStemOnly(current.content),
+               contentLooksLikeOptionsOnly(items[i + 1].content),
+               !contentStartsNewQuestionNumber(items[i + 1].content) {
+                let next = items[i + 1]
+                let mergedContent = current.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    + "\n\n"
+                    + next.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                let mergedBbox = unionBBox(current.bbox, next.bbox)
+                result.append(("题目", next.subtype, mergedContent, mergedBbox))
                 i += 2
                 continue
             }
@@ -316,12 +380,53 @@ final class ScanStore: ObservableObject {
         return result
     }
 
+    private func contentLooksLikeStemOnly(_ content: String) -> Bool {
+        let lines = content.components(separatedBy: .newlines)
+        let hasOptionLine = lines.contains { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard t.count >= 2 else { return false }
+            let first = t.first!.uppercased()
+            let second = t[t.index(t.startIndex, offsetBy: 1)]
+            return (first == "A" || first == "B" || first == "C" || first == "D") && (second == "." || second == "、" || second == ")")
+        }
+        return !hasOptionLine
+    }
+
+    private func contentLooksLikeOptionsOnly(_ content: String) -> Bool {
+        let lines = content.components(separatedBy: .newlines)
+        var optionCount = 0
+        for line in lines {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            guard t.count >= 2 else { continue }
+            let first = t.first!.uppercased()
+            let second = t[t.index(t.startIndex, offsetBy: 1)]
+            if (first == "A" || first == "B" || first == "C" || first == "D") && (second == "." || second == "、" || second == ")") {
+                optionCount += 1
+            }
+        }
+        return optionCount >= 2
+    }
+
+    /// 内容是否以新题号开头（如 2. 3．），若是则不应与上一条合并
+    private func contentStartsNewQuestionNumber(_ content: String) -> Bool {
+        let lines = content.components(separatedBy: .newlines)
+        guard let firstLine = lines.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return false }
+        let t = firstLine.trimmingCharacters(in: .whitespaces)
+        guard t.count >= 2 else { return false }
+        var i = t.startIndex
+        while i < t.endIndex, t[i].isNumber { i = t.index(after: i) }
+        guard i > t.startIndex, i < t.endIndex else { return false }
+        let next = t[i]
+        return next == "." || next == "．" || next == "、"
+    }
+
     private func normalizeItemType(_ type: String) -> String {
         let t = type.trimmingCharacters(in: .whitespacesAndNewlines)
         if t == "板块分类" || t.lowercased().contains("section") || (t.contains("分类") && !t.contains("题干")) { return "板块分类" }
+        if t == "答题说明" || t.contains("说明") { return "答题说明" }
         if t == "题干" || t.lowercased().contains("stem") || t == "问句" { return "题干" }
         if t == "题目" || t.lowercased().contains("item") { return "题目" }
-        return t.isEmpty ? "题目" : "题目"
+        return t.isEmpty ? "题目" : t
     }
 
     private func unionBBox(_ a: BBox?, _ b: BBox?) -> BBox? {
@@ -331,6 +436,7 @@ final class ScanStore: ObservableObject {
         let maxBottom = max(a.y + a.height, b.y + b.height)
         return BBox(x: 0, y: minY, width: 1, height: maxBottom - minY)
     }
+
 
     /// 根据 bbox 从图片中切出题目横条；扩充比例按供应商区分。当 bbox 为空（如 OpenAI 未返回）时按题目序号均分高度估算区域
     private func cropQuestionImage(from image: UIImage, bbox: BBox?, index: Int, totalCount: Int, provider: LLMProvider) -> String? {

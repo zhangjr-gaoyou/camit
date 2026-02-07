@@ -4,7 +4,7 @@ enum BailianError: LocalizedError {
     case invalidBaseURL
     case httpError(statusCode: Int, body: String)
     case emptyResponse
-    case invalidResponseJSON
+    case invalidResponseJSON(raw: String?)
 
     var errorDescription: String? {
         switch self {
@@ -14,8 +14,13 @@ enum BailianError: LocalizedError {
             return "请求失败（HTTP \(statusCode)）：\(body)"
         case .emptyResponse:
             return "模型未返回有效内容。"
-        case .invalidResponseJSON:
-            return "模型返回内容无法解析为 JSON。"
+        case let .invalidResponseJSON(raw):
+            var msg = "模型返回内容无法解析为 JSON。"
+            if let r = raw, !r.isEmpty {
+                let preview = String(r.prefix(300)).replacingOccurrences(of: "\n", with: "↵")
+                msg += " 返回预览：\(preview)\(r.count > 300 ? "…" : "")"
+            }
+            return msg
         }
     }
 }
@@ -120,12 +125,25 @@ struct BailianClient {
             throw BailianError.httpError(statusCode: http.statusCode, body: raw)
         }
 
+        debugLogModelResponse(api: "analyzePaper", content: content)
+
+        /*
         let jsonText = extractFirstJSONObject(from: content) ?? content
         guard let jsonData = jsonText.data(using: .utf8),
               let result = try? JSONDecoder().decode(PaperVisionResult.self, from: jsonData)
         else {
             throw BailianError.invalidResponseJSON
         }
+         */
+        
+        var jsonText = extractFirstJSONObject(from: content) ?? content
+        jsonText = repairPaperVisionJson(jsonText)
+        guard let jsonData = jsonText.data(using: .utf8),
+              let result = try? JSONDecoder().decode(PaperVisionResult.self, from: jsonData)
+        else {
+            throw BailianError.invalidResponseJSON(raw: content)
+        }
+        
 
         return result
     }
@@ -168,7 +186,9 @@ struct BailianClient {
               let content = decoded.choices.first?.message.content else {
             throw BailianError.emptyResponse
         }
-        let jsonText = extractFirstJSONObject(from: content) ?? content
+        debugLogModelResponse(api: "validatePaperResult", content: content)
+        var jsonText = extractFirstJSONObject(from: content) ?? content
+        jsonText = repairJsonForParsing(jsonText)
         guard let jsonData = jsonText.data(using: .utf8),
               let result = try? JSONDecoder().decode(PaperValidationResult.self, from: jsonData) else {
             return PaperValidationResult(valid: true, score: 80, issues: nil)
@@ -206,9 +226,38 @@ struct ChatCompletionsResponse: Codable {
 
 struct PaperVisionItem: Codable, Equatable {
     let type: String  // 板块分类 / 题干 / 题目
+    /// 题型（仅 type=题目 时有效）：选择题、填空题、简答题、计算题、匹配题、判断题、论述题、阅读理解、其他
+    let subtype: String?
     let content: String
     /// 题目在图片中的边界框（归一化坐标 0-1）：{x, y, width, height}
     let bbox: BBox?
+
+    init(type: String, subtype: String? = nil, content: String, bbox: BBox?) {
+        self.type = type
+        self.subtype = subtype
+        self.content = content
+        self.bbox = bbox
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type = try c.decode(String.self, forKey: .type)
+        subtype = try c.decodeIfPresent(String.self, forKey: .subtype)
+        content = try c.decode(String.self, forKey: .content)
+        bbox = try c.decodeIfPresent(BBox.self, forKey: .bbox)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(type, forKey: .type)
+        try c.encodeIfPresent(subtype, forKey: .subtype)
+        try c.encode(content, forKey: .content)
+        try c.encodeIfPresent(bbox, forKey: .bbox)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case type, subtype, content, bbox
+    }
 }
 
 struct BBox: Codable, Equatable {
@@ -216,6 +265,44 @@ struct BBox: Codable, Equatable {
     let y: Double      // 左上角 y（归一化 0-1）
     let width: Double  // 宽度（归一化 0-1）
     let height: Double // 高度（归一化 0-1）
+
+    init(x: Double, y: Double, width: Double, height: Double) {
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+    }
+
+    /// 兼容两种返回格式：
+    /// 1) 对象：{"x":0.1,"y":0.2,"width":0.3,"height":0.05}
+    /// 2) 数组：[0.1, 0.2, 0.3, 0.05]
+    init(from decoder: Decoder) throws {
+        let single = try decoder.singleValueContainer()
+        if let arr = try? single.decode([Double].self), arr.count == 4 {
+            self.x = arr[0]
+            self.y = arr[1]
+            self.width = arr[2]
+            self.height = arr[3]
+            return
+        }
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.x = try c.decode(Double.self, forKey: .x)
+        self.y = try c.decode(Double.self, forKey: .y)
+        self.width = try c.decode(Double.self, forKey: .width)
+        self.height = try c.decode(Double.self, forKey: .height)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(x, forKey: .x)
+        try c.encode(y, forKey: .y)
+        try c.encode(width, forKey: .width)
+        try c.encode(height, forKey: .height)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case x, y, width, height
+    }
 }
 
 struct PaperVisionResult: Codable, Equatable {
@@ -229,12 +316,12 @@ struct PaperVisionResult: Codable, Equatable {
     let questions: [String]?
     let score: Int?
 
-    /// 统一为 (type, content, bbox) 列表
-    var normalizedItems: [(type: String, content: String, bbox: BBox?)] {
+    /// 统一为 (type, subtype, content, bbox) 列表
+    var normalizedItems: [(type: String, subtype: String?, content: String, bbox: BBox?)] {
         if let items = items, !items.isEmpty {
-            return items.map { ($0.type, $0.content, $0.bbox) }
+            return items.map { ($0.type, $0.subtype, $0.content, $0.bbox) }
         }
-        return (questions ?? []).map { ("题目", $0, nil) }
+        return (questions ?? []).map { ("题目", nil, $0, nil) }
     }
 }
 
@@ -300,33 +387,22 @@ extension BailianClient {
     func analyzeQuestion(
         question: String,
         subject: Subject,
+        grade: Grade,
         config: BailianConfig
     ) async throws -> QuestionAnalysisResult {
-        let prompt = """
-        你是一个 \(subject.rawValue) 老师，请针对下面一道题目给出结构化的解析。
-
-        题目：
-        \(question)
-
-        要求：
-        1. 判断这道题所属的考查板块/题型，例如：\"选择题\"、\"填空题\"、\"解答题\"、\"阅读理解\" 等。
-        2. 给出这道题的标准答案（尽量简洁）。
-        3. 给出分步、清晰的解析过程，帮助学生理解解题思路。
-
-        严格只返回 JSON（不要加解释、不要代码块），格式如下：
-        {
-          "section": "选择题 或 解答题 等，若无法判断则为 null",
-          "answer": "标准答案",
-          "explanation": "详细解析"
-        }
-        """
-
+        let prompt = questionAnalysisPrompt(question: question, subject: subject.rawValue, grade: grade.rawValue)
         let text = try await chat(prompt: prompt, config: config)
-        let jsonText = extractFirstJSONObject(from: text) ?? text
+        debugLogModelResponse(api: "analyzeQuestion", content: text)
+        var jsonText = extractFirstJSONObject(from: text) ?? text
+        jsonText = repairJsonForParsing(jsonText)
         guard let data = jsonText.data(using: .utf8) else {
-            throw BailianError.invalidResponseJSON
+            throw BailianError.invalidResponseJSON(raw: text)
         }
-        return try JSONDecoder().decode(QuestionAnalysisResult.self, from: data)
+        do {
+            return try JSONDecoder().decode(QuestionAnalysisResult.self, from: data)
+        } catch {
+            throw BailianError.invalidResponseJSON(raw: text)
+        }
     }
 }
 
