@@ -37,7 +37,7 @@ struct GeminiClient {
         throw BailianError.emptyResponse
     }
 
-    func analyzePaper(imageJPEGData: Data, config: GeminiConfig, promptSuffix: String? = nil) async throws -> PaperVisionResult {
+    func analyzePaper(imageJPEGData: Data, config: GeminiConfig, pageNumber: Int = 1, promptSuffix: String? = nil) async throws -> PaperVisionResult {
         let base = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         let urlString = "\(base)/models/\(config.vlModel):generateContent?key=\(config.apiKey.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? config.apiKey)"
         guard let url = URL(string: urlString) else { throw BailianError.invalidBaseURL }
@@ -47,7 +47,7 @@ struct GeminiClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
         let systemPrompt = paperAnalysisSystemPrompt() + (promptSuffix ?? "")
-        let userText = "请分析这张图片。"
+        let userText = "请分析这张图片，这是试卷的第\(pageNumber)页。"
         // Gemini v1 不支持 systemInstruction，将系统提示词合并到用户消息
         let combinedPrompt = "\(systemPrompt)\n\n\(userText)"
 

@@ -36,7 +36,7 @@ struct OpenAIClient {
         throw BailianError.emptyResponse
     }
 
-    func analyzePaper(imageJPEGData: Data, config: OpenAIConfig, promptSuffix: String? = nil) async throws -> PaperVisionResult {
+    func analyzePaper(imageJPEGData: Data, config: OpenAIConfig, pageNumber: Int = 1, promptSuffix: String? = nil) async throws -> PaperVisionResult {
         let base = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let baseURL = URL(string: base) else { throw BailianError.invalidBaseURL }
         let url = baseURL.appendingPathComponent("chat/completions")
@@ -55,7 +55,7 @@ struct OpenAIClient {
             messages: [
                 .init(role: "system", content: .string(system)),
                 .init(role: "user", content: .parts([
-                    .text("请分析这张图片。"),
+                    .text("请分析这张图片，这是试卷的第\(pageNumber)页。"),
                     .imageURL(dataURL)
                 ]))
             ],

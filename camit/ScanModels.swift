@@ -164,6 +164,10 @@ struct PaperQuestion: Identifiable, Codable, Equatable {
     var isWrong: Bool = false
     /// 题目切图文件名（保存在 camit_scans/ 下）
     var cropImageFileName: String?
+    /// 选项为图形时，各选项的切图文件名（key 为 A/B/C/D）
+    var optionCropImageFileNames: [String: String]?
+    /// 题干含「如图」时的附图切图文件名
+    var figureCropImageFileName: String?
 
     /// 是否为可作答的「题目」（仅此类显示「生成答案与解析」）
     var isQuestionItem: Bool {

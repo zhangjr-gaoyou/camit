@@ -4,6 +4,9 @@ import UIKit
 
 private let parseSuccessScoreThreshold = 75
 
+/// 归一化后的题目项：含题干/题目、选项图框、附图框
+private typealias NormalizedItem = (type: String, subtype: String?, content: String, bbox: BBox?, optionBboxes: [String: BBox]?, figureBbox: BBox?)
+
 @MainActor
 final class ScanStore: ObservableObject {
     @Published private(set) var items: [ScanItem] = []
@@ -32,7 +35,7 @@ final class ScanStore: ObservableObject {
 
         var bestResult: PaperVisionResult?
         var bestScore: Int = -1
-        var bestItemsToUse: [(type: String, subtype: String?, content: String, bbox: BBox?)] = []
+        var bestItemsToUse: [NormalizedItem] = []
 
         for attempt in 0..<3 {
             let current = attempt + 1
@@ -40,7 +43,7 @@ final class ScanStore: ObservableObject {
             let promptSuffix = (attempt > 0) ? paperAnalysisPromptSuffixForRetry : nil
             let result: PaperVisionResult
             do {
-                result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config, promptSuffix: promptSuffix)
+                result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config, pageNumber: 1, promptSuffix: promptSuffix)
             } catch {
                 if attempt == 0 { throw error }
                 continue
@@ -50,7 +53,7 @@ final class ScanStore: ObservableObject {
                 continue
             }
             let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
-            debugPrintParseItems(attempt: current, rawItems: result.normalizedItems, normalizedItems: itemsToUse, phase: "VL+normalize")
+            debugPrintParseItems(attempt: current, rawItems: result.normalizedItems.map { r in (type: r.type, subtype: r.subtype, content: r.content) }, normalizedItems: itemsToUse, phase: "VL+normalize")
             let itemsSummary = itemsToUse.map { "[\($0.type)]\($0.subtype.map { "/\($0)" } ?? "") \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
             let validation: PaperValidationResult
             do {
@@ -75,7 +78,7 @@ final class ScanStore: ObservableObject {
             return nil
         }
 
-        debugPrintParseItems(attempt: nil, rawItems: [], normalizedItems: bestItemsToUse, phase: "analyzeAndAddScan final")
+        debugPrintParseItems(attempt: nil, rawItems: [] as [(type: String, subtype: String?, content: String)], normalizedItems: bestItemsToUse, phase: "analyzeAndAddScan final")
         progress?(L10n.analyzeStageCropping)
 
         let now = Date()
@@ -89,17 +92,21 @@ final class ScanStore: ObservableObject {
         let totalCount = bestItemsToUse.count
         let questions: [PaperQuestion] = bestItemsToUse.enumerated().map { idx, item in
             let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx, totalCount: totalCount, provider: provider)
+            let optionCrops = cropOptionImages(from: image, optionBboxes: item.optionBboxes)
+            let figureCrop = item.figureBbox.flatMap { cropImageByBBox(from: image, bbox: $0) }
             let isQuestionItem = normalizeItemType(item.type) == "题目"
-            let idxValue: Int? = isQuestionItem ? (idx + 1) : nil
+            let idxValue: Int? = isQuestionItem ? (extractQuestionNumber(from: item.content) ?? (idx + 1)) : nil
             let processedContent = replaceTianziGeWithUnderline(item.content)
-            debugPrintQuestionCreated(index: idx + 1, kind: item.type, subtype: item.subtype, text: processedContent)
+            debugPrintQuestionCreated(index: idxValue ?? idx + 1, kind: item.type, subtype: item.subtype, text: processedContent)
             return PaperQuestion(
                 index: idxValue,
                 kind: item.type,
                 subtype: item.subtype,
                 text: processedContent,
                 isWrong: false,
-                cropImageFileName: cropFileName
+                cropImageFileName: cropFileName,
+                optionCropImageFileNames: optionCrops.isEmpty ? nil : optionCrops,
+                figureCropImageFileName: figureCrop
             )
         }
 
@@ -158,29 +165,37 @@ final class ScanStore: ObservableObject {
         config: any LLMConfigProtocol,
         progress: ((String) -> Void)? = nil
     ) async throws {
-        guard let data = image.jpegData(compressionQuality: 0.85) else { return }
-        guard let i = items.firstIndex(where: { $0.id == scanID }) else { return }
+        guard let data = image.jpegData(compressionQuality: 0.85) else {
+            print("[camit] addImage: 图片无法转为 JPEG")
+            return
+        }
+        guard let i = items.firstIndex(where: { $0.id == scanID }) else {
+            print("[camit] addImage: 未找到 scanID=\(scanID)")
+            return
+        }
 
         progress?(L10n.analyzeStagePreparing)
 
         var bestResult: PaperVisionResult?
         var bestScore: Int = -1
-        var bestItemsToUse: [(type: String, subtype: String?, content: String, bbox: BBox?)] = []
+        var bestItemsToUse: [NormalizedItem] = []
 
         for attempt in 0..<3 {
             let current = attempt + 1
             progress?(L10n.analyzeStageVisionAttempt(current: current, total: 3))
             let promptSuffix = (attempt > 0) ? paperAnalysisPromptSuffixForRetry : nil
+            let pageNumber = items[i].imageFileNames.count + 1
             let result: PaperVisionResult
             do {
-                result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config, promptSuffix: promptSuffix)
+                result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config, pageNumber: pageNumber, promptSuffix: promptSuffix)
             } catch {
                 if attempt == 0 { throw error }
                 continue
             }
-            guard result.is_homework_or_exam else { continue }
+            // 后续图片可能被 VL 误判为非试卷（如仅含题目的页面），若有有效题目仍可使用
             let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
-            debugPrintParseItems(attempt: current, rawItems: result.normalizedItems, normalizedItems: itemsToUse, phase: "addImage VL+normalize")
+            guard result.is_homework_or_exam || !itemsToUse.isEmpty else { continue }
+            debugPrintParseItems(attempt: current, rawItems: result.normalizedItems.map { r in (type: r.type, subtype: r.subtype, content: r.content) }, normalizedItems: itemsToUse, phase: "addImage VL+normalize")
             let itemsSummary = itemsToUse.map { "[\($0.type)]\($0.subtype.map { "/\($0)" } ?? "") \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
             let validation: PaperValidationResult
             do {
@@ -201,9 +216,23 @@ final class ScanStore: ObservableObject {
             }
         }
 
-        guard bestResult != nil, !bestItemsToUse.isEmpty else { return }
+        guard bestResult != nil, !bestItemsToUse.isEmpty else {
+            print("[camit] addImage: 解析失败或 VL 未返回有效题目，bestResult=\(bestResult != nil), itemsCount=\(bestItemsToUse.count)")
+            return
+        }
 
-        debugPrintParseItems(attempt: nil, rawItems: [], normalizedItems: bestItemsToUse, phase: "addImage final")
+        // 后续图片：仅保留「显式新板块」（内容含二、三、四、等序号），滤掉 VL 推断的续页板块（如「选择题」「一、选择题」）
+        let itemsToAppend: [NormalizedItem] = bestItemsToUse.filter { item in
+            if normalizeItemType(item.type) != "板块分类" { return true }
+            let c = item.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            return c.contains("二、") || c.contains("三、") || c.contains("四、") || c.contains("五、")
+        }
+        guard !itemsToAppend.isEmpty else {
+            print("[camit] addImage: 过滤后无有效题目，原始数量=\(bestItemsToUse.count)")
+            return
+        }
+
+        debugPrintParseItems(attempt: nil, rawItems: [] as [(type: String, subtype: String?, content: String)], normalizedItems: itemsToAppend, phase: "addImage final")
         progress?(L10n.analyzeStageCropping)
 
         let fileName = "scan-\(UUID().uuidString).jpg"
@@ -213,21 +242,24 @@ final class ScanStore: ObservableObject {
         items[i].imageFileNames.append(fileName)
 
         let startIndex = items[i].questions.count
-        let totalCount = bestItemsToUse.count
-        let newQuestions: [PaperQuestion] = bestItemsToUse.enumerated().map { idx, item in
-            // index 仅用于可作答小题（type=题目），表示整份试卷中的题号
+        let totalCount = itemsToAppend.count
+        let newQuestions: [PaperQuestion] = itemsToAppend.enumerated().map { idx, item in
             let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx, totalCount: totalCount, provider: provider)
+            let optionCrops = cropOptionImages(from: image, optionBboxes: item.optionBboxes)
+            let figureCrop = item.figureBbox.flatMap { cropImageByBBox(from: image, bbox: $0) }
             let isQuestionItem = normalizeItemType(item.type) == "题目"
-            let idxValue: Int? = isQuestionItem ? (startIndex + idx + 1) : nil
+            let idxValue: Int? = isQuestionItem ? (extractQuestionNumber(from: item.content) ?? (startIndex + idx + 1)) : nil
             let processedContent = replaceTianziGeWithUnderline(item.content)
-            debugPrintQuestionCreated(index: startIndex + idx + 1, kind: item.type, subtype: item.subtype, text: processedContent)
+            debugPrintQuestionCreated(index: idxValue ?? startIndex + idx + 1, kind: item.type, subtype: item.subtype, text: processedContent)
             return PaperQuestion(
                 index: idxValue,
                 kind: item.type,
                 subtype: item.subtype,
                 text: processedContent,
                 isWrong: false,
-                cropImageFileName: cropFileName
+                cropImageFileName: cropFileName,
+                optionCropImageFileNames: optionCrops.isEmpty ? nil : optionCrops,
+                figureCropImageFileName: figureCrop
             )
         }
         items[i].questions.append(contentsOf: newQuestions)
@@ -298,12 +330,12 @@ final class ScanStore: ObservableObject {
     }
 
     /// 调试：打印解析内容到 console，便于排查题干/选项合并等问题
-    private func debugPrintParseItems(
+    private func debugPrintParseItems<Raw: Collection, Norm: Collection>(
         attempt: Int?,
-        rawItems: [(type: String, subtype: String?, content: String, bbox: BBox?)],
-        normalizedItems: [(type: String, subtype: String?, content: String, bbox: BBox?)],
+        rawItems: Raw,
+        normalizedItems: Norm,
         phase: String
-    ) {
+    ) where Raw.Element == (type: String, subtype: String?, content: String), Norm.Element == NormalizedItem {
         let prefix = "[camit] "
         let attStr = attempt.map { " attempt \($0)" } ?? ""
         print("\(prefix)===== Parse \(phase)\(attStr) =====")
@@ -330,38 +362,82 @@ final class ScanStore: ObservableObject {
         print("[camit] Question[\(index)] kind=\(kind)\(sub) | \(preview)\(text.count > 150 ? "…" : "")")
     }
 
-    /// 按供应商规范化项列表，统一 type 并合并题干+题目（或两道「题目」中题干+选项）为一条
+    /// 按供应商规范化项列表，统一 type 并合并题干+题目、附图等
     private func normalizeItemsForProvider(
         _ provider: LLMProvider,
-        _ items: [(type: String, subtype: String?, content: String, bbox: BBox?)]
-    ) -> [(type: String, subtype: String?, content: String, bbox: BBox?)] {
-        let normalized: [(type: String, subtype: String?, content: String, bbox: BBox?)] = items.map { item in
+        _ items: [(type: String, subtype: String?, content: String, bbox: BBox?, optionBboxes: [String: BBox]?)]
+    ) -> [NormalizedItem] {
+        let withType: [NormalizedItem] = items.map { item in
             let t = normalizeItemType(item.type)
-            return (t, item.subtype, item.content, item.bbox)
+            return (t, item.subtype, item.content, item.bbox, item.optionBboxes, nil as BBox?)
         }
-        return normalizeAndMergeStemItem(items: normalized)
+        return normalizeAndMergeStemItem(items: withType)
     }
 
-    /// 统一 type 为「板块分类/题干/题目」，合并：1) 题干+题目；2) 两道题目（前者仅题干、后者仅 A/B/C/D 选项）为一条
-    private func normalizeAndMergeStemItem(
-        items: [(type: String, subtype: String?, content: String, bbox: BBox?)]
-    ) -> [(type: String, subtype: String?, content: String, bbox: BBox?)] {
-        var result: [(type: String, subtype: String?, content: String, bbox: BBox?)] = []
+    /// 统一 type 为「板块分类/题干/题目/附图」，合并：1) 题干+附图+题目；2) 题目+附图+题目（选项）；3) 题干+题目；4) 两道题目（题干+选项）；5) 题目+附图
+    private func normalizeAndMergeStemItem(items: [NormalizedItem]) -> [NormalizedItem] {
+        var result: [NormalizedItem] = []
         var i = 0
         while i < items.count {
             let current = items[i]
-            if current.type == "题干", i + 1 < items.count, items[i + 1].type == "题目",
+            // 题干 + 附图 + 题目：带「如图」的完整选择题
+            if current.type == "题干", i + 2 < items.count,
+               normalizeItemType(items[i + 1].type) == "附图",
+               normalizeItemType(items[i + 2].type) == "题目",
+               !contentStartsNewQuestionNumber(items[i + 2].content) {
+                let fig = items[i + 1]
+                let next = items[i + 2]
+                let mergedContent = current.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    + "\n\n"
+                    + next.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                let mergedBbox = unionBBox(current.bbox, unionBBox(fig.bbox, next.bbox))
+                result.append(("题目", next.subtype, mergedContent, mergedBbox, next.optionBboxes, fig.bbox))
+                i += 3
+                continue
+            }
+            // 题目(stem) + 附图 + 题目(options)：题干与选项被拆开且中间有附图
+            if current.type == "题目", i + 2 < items.count,
+               normalizeItemType(items[i + 1].type) == "附图",
+               normalizeItemType(items[i + 2].type) == "题目",
+               contentLooksLikeStemOnly(current.content),
+               contentLooksLikeOptionsOnly(items[i + 2].content),
+               !contentStartsNewQuestionNumber(items[i + 2].content) {
+                let fig = items[i + 1]
+                let next = items[i + 2]
+                let mergedContent = current.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    + "\n\n"
+                    + next.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                let mergedBbox = unionBBox(current.bbox, unionBBox(fig.bbox, next.bbox))
+                let mergedOpts = next.optionBboxes ?? current.optionBboxes
+                result.append(("题目", next.subtype, mergedContent, mergedBbox, mergedOpts, fig.bbox))
+                i += 3
+                continue
+            }
+            // 附图：合并到上一题（题干或题目）的 figureBbox
+            if current.type == "附图" {
+                if !result.isEmpty {
+                    let last = result[result.count - 1]
+                    let t = normalizeItemType(last.type)
+                    if t == "题目" || t == "题干" {
+                        let mergedBbox = unionBBox(last.bbox, current.bbox)
+                        result[result.count - 1] = (last.type, last.subtype, last.content, mergedBbox, last.optionBboxes, current.bbox)
+                    }
+                }
+                i += 1
+                continue
+            }
+            if current.type == "题干", i + 1 < items.count, normalizeItemType(items[i + 1].type) == "题目",
                !contentStartsNewQuestionNumber(items[i + 1].content) {
                 let next = items[i + 1]
                 let mergedContent = current.content.trimmingCharacters(in: .whitespacesAndNewlines)
                     + "\n\n"
                     + next.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 let mergedBbox = unionBBox(current.bbox, next.bbox)
-                result.append(("题目", next.subtype, mergedContent, mergedBbox))
+                result.append(("题目", next.subtype, mergedContent, mergedBbox, next.optionBboxes, next.figureBbox))
                 i += 2
                 continue
             }
-            if current.type == "题目", i + 1 < items.count, items[i + 1].type == "题目",
+            if current.type == "题目", i + 1 < items.count, normalizeItemType(items[i + 1].type) == "题目",
                contentLooksLikeStemOnly(current.content),
                contentLooksLikeOptionsOnly(items[i + 1].content),
                !contentStartsNewQuestionNumber(items[i + 1].content) {
@@ -370,7 +446,8 @@ final class ScanStore: ObservableObject {
                     + "\n\n"
                     + next.content.trimmingCharacters(in: .whitespacesAndNewlines)
                 let mergedBbox = unionBBox(current.bbox, next.bbox)
-                result.append(("题目", next.subtype, mergedContent, mergedBbox))
+                let mergedOpts = next.optionBboxes ?? current.optionBboxes
+                result.append(("题目", next.subtype, mergedContent, mergedBbox, mergedOpts, next.figureBbox))
                 i += 2
                 continue
             }
@@ -426,6 +503,7 @@ final class ScanStore: ObservableObject {
         if t == "答题说明" || t.contains("说明") { return "答题说明" }
         if t == "题干" || t.lowercased().contains("stem") || t == "问句" { return "题干" }
         if t == "题目" || t.lowercased().contains("item") { return "题目" }
+        if t == "附图" || t.contains("附图") { return "附图" }
         return t.isEmpty ? "题目" : t
     }
 
@@ -505,6 +583,48 @@ final class ScanStore: ObservableObject {
         guard let croppedCGImage = cgImage.cropping(to: cropRect) else { return nil }
         let croppedImage = UIImage(cgImage: croppedCGImage)
 
+        guard let data = croppedImage.jpegData(compressionQuality: 0.85) else { return nil }
+        let fileName = "crop-\(UUID().uuidString).jpg"
+        if let url = try? imageURL(fileName: fileName) {
+            try? data.write(to: url, options: [.atomic])
+        }
+        return fileName
+    }
+
+    /// 按 option_bboxes 切出各选项小图（用于图形选项）
+    private func cropOptionImages(from image: UIImage, optionBboxes: [String: BBox]?) -> [String: String] {
+        guard let boxes = optionBboxes, !boxes.isEmpty else { return [:] }
+        var result: [String: String] = [:]
+        for (label, bbox) in boxes {
+            if let fn = cropImageByBBox(from: image, bbox: bbox) {
+                result[label] = fn
+            }
+        }
+        return result
+    }
+
+    /// 按 bbox 切图（选项、附图用）。先用 CV 精修边界，再按精修后的 bbox 裁剪
+    private func cropImageByBBox(from image: UIImage, bbox: BBox) -> String? {
+        let isValidBBox: (BBox) -> Bool = { b in
+            b.x >= 0 && b.y >= 0 && b.width > 0 && b.height > 0 && b.x <= 1 && b.y <= 1
+        }
+        guard isValidBBox(bbox) else { return nil }
+
+        let normalizedImage = normalizeImageOrientation(image)
+        guard let cgImage = normalizedImage.cgImage else { return nil }
+        let imgW = CGFloat(cgImage.width)
+        let imgH = CGFloat(cgImage.height)
+
+        // 方案 C：CV 精修，找到紧贴图形边缘的边界框
+        let effectiveBbox = GraphicCropRefinement.refineBBox(cgImage: cgImage, vlBbox: bbox) ?? bbox
+
+        let rx = CGFloat(effectiveBbox.x) * imgW
+        let ry = CGFloat(effectiveBbox.y) * imgH
+        let rw = CGFloat(effectiveBbox.width) * imgW
+        let rh = CGFloat(effectiveBbox.height) * imgH
+        let cropRect = CGRect(x: rx, y: ry, width: rw, height: rh)
+        guard let cropped = cgImage.cropping(to: cropRect) else { return nil }
+        let croppedImage = UIImage(cgImage: cropped)
         guard let data = croppedImage.jpegData(compressionQuality: 0.85) else { return nil }
         let fileName = "crop-\(UUID().uuidString).jpg"
         if let url = try? imageURL(fileName: fileName) {

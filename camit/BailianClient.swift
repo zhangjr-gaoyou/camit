@@ -72,8 +72,9 @@ struct BailianClient {
     }
 
     /// Use VL model to determine if the image is a paper/homework and extract all questions.
+    /// - Parameter pageNumber: 试卷页码（1 起）
     /// - Parameter promptSuffix: 重试时追加到系统提示词后的强调说明，首次传 nil
-    func analyzePaper(imageJPEGData: Data, config: BailianConfig, promptSuffix: String? = nil) async throws -> PaperVisionResult {
+    func analyzePaper(imageJPEGData: Data, config: BailianConfig, pageNumber: Int = 1, promptSuffix: String? = nil) async throws -> PaperVisionResult {
         let base = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let baseURL = URL(string: base) else { throw BailianError.invalidBaseURL }
 
@@ -88,7 +89,7 @@ struct BailianClient {
         let dataURL = "data:image/jpeg;base64,\(b64)"
 
         let system = paperAnalysisSystemPromptText + (promptSuffix ?? "")
-        let userText = "请分析这张图片。"
+        let userText = "请分析这张图片，这是试卷的第\(pageNumber)页。"
 
         let body = VLChatCompletionsRequest(
             model: config.vlModel,
@@ -225,18 +226,21 @@ struct ChatCompletionsResponse: Codable {
 }
 
 struct PaperVisionItem: Codable, Equatable {
-    let type: String  // 板块分类 / 题干 / 题目
-    /// 题型（仅 type=题目 时有效）：选择题、填空题、简答题、计算题、匹配题、判断题、论述题、阅读理解、其他
+    let type: String  // 板块分类 / 题干 / 题目 / 附图
+    /// 题型（仅 type=题目 时有效）
     let subtype: String?
     let content: String
-    /// 题目在图片中的边界框（归一化坐标 0-1）：{x, y, width, height}
+    /// 题目在图片中的边界框（归一化坐标 0-1）
     let bbox: BBox?
+    /// 选项为图形时，各选项的边界框，如 {"A":{...},"B":{...}}
+    let option_bboxes: [String: BBox]?
 
-    init(type: String, subtype: String? = nil, content: String, bbox: BBox?) {
+    init(type: String, subtype: String? = nil, content: String, bbox: BBox?, option_bboxes: [String: BBox]? = nil) {
         self.type = type
         self.subtype = subtype
         self.content = content
         self.bbox = bbox
+        self.option_bboxes = option_bboxes
     }
 
     init(from decoder: Decoder) throws {
@@ -245,6 +249,7 @@ struct PaperVisionItem: Codable, Equatable {
         subtype = try c.decodeIfPresent(String.self, forKey: .subtype)
         content = try c.decode(String.self, forKey: .content)
         bbox = try c.decodeIfPresent(BBox.self, forKey: .bbox)
+        option_bboxes = try c.decodeIfPresent([String: BBox].self, forKey: .option_bboxes)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -253,10 +258,11 @@ struct PaperVisionItem: Codable, Equatable {
         try c.encodeIfPresent(subtype, forKey: .subtype)
         try c.encode(content, forKey: .content)
         try c.encodeIfPresent(bbox, forKey: .bbox)
+        try c.encodeIfPresent(option_bboxes, forKey: .option_bboxes)
     }
 
     private enum CodingKeys: String, CodingKey {
-        case type, subtype, content, bbox
+        case type, subtype, content, bbox, option_bboxes
     }
 }
 
@@ -316,12 +322,12 @@ struct PaperVisionResult: Codable, Equatable {
     let questions: [String]?
     let score: Int?
 
-    /// 统一为 (type, subtype, content, bbox) 列表
-    var normalizedItems: [(type: String, subtype: String?, content: String, bbox: BBox?)] {
+    /// 统一为 (type, subtype, content, bbox, optionBboxes) 列表
+    var normalizedItems: [(type: String, subtype: String?, content: String, bbox: BBox?, optionBboxes: [String: BBox]?)] {
         if let items = items, !items.isEmpty {
-            return items.map { ($0.type, $0.subtype, $0.content, $0.bbox) }
+            return items.map { ($0.type, $0.subtype, $0.content, $0.bbox, $0.option_bboxes) }
         }
-        return (questions ?? []).map { ("题目", nil, $0, nil) }
+        return (questions ?? []).map { ("题目", nil, $0, nil, nil) }
     }
 }
 

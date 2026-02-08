@@ -314,7 +314,7 @@ private struct ItemCard: View {
     let onToggleWrong: () -> Void
     let onAnalyze: () -> Void
     let isAnalyzing: Bool
-    let onShowCropImage: () -> Void
+    let onShowCropImage: (String?) -> Void
 
     private var isSectionKind: Bool {
         (question.kind ?? "题目") == "板块分类"
@@ -446,45 +446,19 @@ private struct ItemCard: View {
                     .padding(.bottom, 6)
             }
             if let parsed = parsedChoice {
-                // 选择题：题干 + 选项网格（或完整切图）；题干去题号前缀避免与「第n题」重复；支持 LaTeX 公式渲染
+                // 选择题：题干 + 选项网格（不显示图形切图）
                 LaTeXRichTextView(stemForDisplay(parsed.stem), isSection: isSectionKind)
 
-                if parsed.optionsAreImagePlaceholders {
-                    if let cropName = question.cropImageFileName,
-                       let url = try? store.imageURL(fileName: cropName),
-                       let ui = UIImage(contentsOfFile: url.path) {
-                        // 选项为图片占位符时，显示完整切图
-                        Image(uiImage: ui)
-                            .resizable()
-                            .scaledToFit()
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .padding(.top, 12)
-                            .contentShape(Rectangle())
-                            .onTapGesture { onShowCropImage() }
-                    } else {
-                        // 题目为图形但切图未保存或加载失败，显示提示而非 [图片A] 占位符
-                        Text(L10n.wrongGraphicCropMissing)
-                            .font(.subheadline)
-                            .foregroundStyle(AppTheme.secondaryText)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 20)
-                            .padding(.top, 12)
-                            .background(Color(.tertiarySystemFill))
-                            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                let cols: [GridItem] = parsed.useTwoColumns
+                    ? [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+                    : [GridItem(.flexible())]
+                LazyVGrid(columns: cols, spacing: 10) {
+                    ForEach(Array(parsed.options.enumerated()), id: \.offset) { _, opt in
+                        let isSelected = selectedOptionLabel == opt.label
+                        optionBox(label: opt.label, text: opt.text, isSelected: isSelected)
                     }
-                } else {
-                    let cols: [GridItem] = parsed.useTwoColumns
-                        ? [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
-                        : [GridItem(.flexible())]
-                    LazyVGrid(columns: cols, spacing: 10) {
-                        ForEach(Array(parsed.options.enumerated()), id: \.offset) { _, opt in
-                            let isSelected = selectedOptionLabel == opt.label
-                            optionBox(label: opt.label, text: opt.text, isSelected: isSelected)
-                        }
-                    }
-                    .padding(.top, 12)
                 }
+                .padding(.top, 12)
             } else {
                 LaTeXRichTextView(stemForDisplay(replaceTianziGeWithUnderline(question.text)), isSection: isSectionKind)
             }
@@ -530,7 +504,7 @@ private struct ItemCard: View {
                     }
                     Spacer()
                     if question.cropImageFileName != nil {
-                        Button(action: onShowCropImage) {
+                        Button(action: { onShowCropImage(question.cropImageFileName ?? question.figureCropImageFileName) }) {
                             Image(systemName: "photo")
                                 .foregroundStyle(AppTheme.secondaryText)
                                 .font(.system(size: 18, weight: .medium))
@@ -622,7 +596,7 @@ private extension WrongQuestionsView {
                             onToggleWrong: { store.toggleWrong(scanID: paper.id, questionID: q.id) },
                             onAnalyze: { analyzeQuestion(paper: paper, question: q) },
                             isAnalyzing: analyzingQuestionIDs.contains(q.id),
-                            onShowCropImage: { cropImageToShow = q.cropImageFileName }
+                            onShowCropImage: { cropImageToShow = $0 }
                         )
                     }
                 }
