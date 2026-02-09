@@ -243,13 +243,32 @@ struct PaperVisionItem: Codable, Equatable {
         self.option_bboxes = option_bboxes
     }
 
+    /// 兼容两种 option_bboxes 返回格式：
+    /// 1) 字典：{"A":{...},"B":{...}}
+    /// 2) 数组：[{"label":"A","bbox":{...}},{"label":"B","bbox":{...}}]
+    private struct OptionBBoxArrayItem: Codable {
+        let label: String
+        let bbox: BBox
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         type = try c.decode(String.self, forKey: .type)
         subtype = try c.decodeIfPresent(String.self, forKey: .subtype)
         content = try c.decode(String.self, forKey: .content)
         bbox = try c.decodeIfPresent(BBox.self, forKey: .bbox)
-        option_bboxes = try c.decodeIfPresent([String: BBox].self, forKey: .option_bboxes)
+        // 先尝试按字典解码；若失败则回退为数组形式再转换为字典
+        if let dict = try? c.decode([String: BBox].self, forKey: .option_bboxes) {
+            option_bboxes = dict
+        } else if let arr = try? c.decode([OptionBBoxArrayItem].self, forKey: .option_bboxes) {
+            var dict: [String: BBox] = [:]
+            for item in arr {
+                dict[item.label] = item.bbox
+            }
+            option_bboxes = dict.isEmpty ? nil : dict
+        } else {
+            option_bboxes = nil
+        }
     }
 
     func encode(to encoder: Encoder) throws {

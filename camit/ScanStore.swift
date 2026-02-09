@@ -33,51 +33,21 @@ final class ScanStore: ObservableObject {
 
         progress?(L10n.analyzeStagePreparing)
 
-        var bestResult: PaperVisionResult?
-        var bestScore: Int = -1
-        var bestItemsToUse: [NormalizedItem] = []
-
-        for attempt in 0..<3 {
-            let current = attempt + 1
-            progress?(L10n.analyzeStageVisionAttempt(current: current, total: 3))
-            let promptSuffix = (attempt > 0) ? paperAnalysisPromptSuffixForRetry : nil
-            let result: PaperVisionResult
-            do {
-                result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config, pageNumber: 1, promptSuffix: promptSuffix)
-            } catch {
-                if attempt == 0 { throw error }
-                continue
-            }
-            guard result.is_homework_or_exam else {
-                if attempt == 0 { return nil }
-                continue
-            }
-            let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
-            debugPrintParseItems(attempt: current, rawItems: result.normalizedItems.map { r in (type: r.type, subtype: r.subtype, content: r.content) }, normalizedItems: itemsToUse, phase: "VL+normalize")
-            let itemsSummary = itemsToUse.map { "[\($0.type)]\($0.subtype.map { "/\($0)" } ?? "") \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
-            let validation: PaperValidationResult
-            do {
-                progress?(L10n.analyzeStageValidating(current: current, total: 3))
-                validation = try await LLMService.validatePaperResult(imageJPEGData: data, itemsSummary: itemsSummary, provider: provider, config: config)
-            } catch {
-                if attempt == 0 { throw error }
-                continue
-            }
-            let score = validation.score ?? 0
-            if score > bestScore {
-                bestScore = score
-                bestResult = result
-                bestItemsToUse = itemsToUse
-            }
-            if score >= parseSuccessScoreThreshold {
-                break
-            }
-        }
-
-        guard let result = bestResult, !bestItemsToUse.isEmpty else {
+        // 子任务 1：只负责题目解析与校验，不做切图和持久化
+        guard let (result, bestItemsToUse) = try await runPaperAnalysis(
+            imageData: data,
+            provider: provider,
+            config: config,
+            pageNumber: 1,
+            allowNonExamIfHasItems: false,
+            progress: progress,
+            caller: "analyzeAndAddScan",
+            debugPhase: "VL+normalize"
+        ) else {
             return nil
         }
 
+        // 子任务 2：基于解析结果做切图与落库
         debugPrintParseItems(attempt: nil, rawItems: [] as [(type: String, subtype: String?, content: String)], normalizedItems: bestItemsToUse, phase: "analyzeAndAddScan final")
         debugPrintAllQuestions(bestItemsToUse)
         progress?(L10n.analyzeStageCropping)
@@ -177,51 +147,23 @@ final class ScanStore: ObservableObject {
 
         progress?(L10n.analyzeStagePreparing)
 
-        var bestResult: PaperVisionResult?
-        var bestScore: Int = -1
-        var bestItemsToUse: [NormalizedItem] = []
-
-        for attempt in 0..<3 {
-            let current = attempt + 1
-            progress?(L10n.analyzeStageVisionAttempt(current: current, total: 3))
-            let promptSuffix = (attempt > 0) ? paperAnalysisPromptSuffixForRetry : nil
-            let pageNumber = items[i].imageFileNames.count + 1
-            let result: PaperVisionResult
-            do {
-                result = try await LLMService.analyzePaper(imageJPEGData: data, provider: provider, config: config, pageNumber: pageNumber, promptSuffix: promptSuffix)
-            } catch {
-                if attempt == 0 { throw error }
-                continue
-            }
-            // 后续图片可能被 VL 误判为非试卷（如仅含题目的页面），若有有效题目仍可使用
-            let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
-            guard result.is_homework_or_exam || !itemsToUse.isEmpty else { continue }
-            debugPrintParseItems(attempt: current, rawItems: result.normalizedItems.map { r in (type: r.type, subtype: r.subtype, content: r.content) }, normalizedItems: itemsToUse, phase: "addImage VL+normalize")
-            let itemsSummary = itemsToUse.map { "[\($0.type)]\($0.subtype.map { "/\($0)" } ?? "") \(String($0.content.prefix(400)))" }.joined(separator: "\n\n")
-            let validation: PaperValidationResult
-            do {
-                progress?(L10n.analyzeStageValidating(current: current, total: 3))
-                validation = try await LLMService.validatePaperResult(imageJPEGData: data, itemsSummary: itemsSummary, provider: provider, config: config)
-            } catch {
-                if attempt == 0 { throw error }
-                continue
-            }
-            let score = validation.score ?? 0
-            if score > bestScore {
-                bestScore = score
-                bestResult = result
-                bestItemsToUse = itemsToUse
-            }
-            if score >= parseSuccessScoreThreshold {
-                break
-            }
-        }
-
-        guard bestResult != nil, !bestItemsToUse.isEmpty else {
-            print("[camit] addImage: 解析失败或 VL 未返回有效题目，bestResult=\(bestResult != nil), itemsCount=\(bestItemsToUse.count)")
+        // 子任务 1：只负责题目解析与校验，不做切图
+        let pageNumber = items[i].imageFileNames.count + 1
+        guard let (_, bestItemsToUse) = try await runPaperAnalysis(
+            imageData: data,
+            provider: provider,
+            config: config,
+            pageNumber: pageNumber,
+            allowNonExamIfHasItems: true,
+            progress: progress,
+            caller: "addImage",
+            debugPhase: "addImage VL+normalize"
+        ) else {
+            print("[camit] addImage: 解析失败或 VL 未返回有效题目")
             return
         }
 
+        // 子任务 2：基于解析结果过滤需要追加的题目，再做切图与落库
         // 后续图片：仅保留「显式新板块」（内容含二、三、四、等序号），滤掉 VL 推断的续页板块（如「选择题」「一、选择题」）
         let itemsToAppend: [NormalizedItem] = bestItemsToUse.filter { item in
             if normalizeItemType(item.type) != "板块分类" { return true }
@@ -531,6 +473,111 @@ final class ScanStore: ObservableObject {
         guard b.width > 0, b.height > 0 else { return false }
         guard b.x >= -0.02, b.x <= 1.02, b.y >= -0.02, b.y <= 1.2 else { return false }
         return true
+    }
+
+    /// 子任务 1：调用 VL 完成试卷解析 + 校验，只返回逻辑结构，不做切图和持久化
+    private func runPaperAnalysis(
+        imageData: Data,
+        provider: LLMProvider,
+        config: any LLMConfigProtocol,
+        pageNumber: Int,
+        allowNonExamIfHasItems: Bool,
+        progress: ((String) -> Void)?,
+        caller: String,
+        debugPhase: String
+    ) async throws -> (PaperVisionResult, [NormalizedItem])? {
+        var bestResult: PaperVisionResult?
+        var bestScore: Int = -1
+        var bestItemsToUse: [NormalizedItem] = []
+
+        for attempt in 0..<3 {
+            let current = attempt + 1
+            progress?(L10n.analyzeStageVisionAttempt(current: current, total: 3))
+            let promptSuffix = (attempt > 0) ? paperAnalysisPromptSuffixForRetry : nil
+            let result: PaperVisionResult
+            do {
+                result = try await LLMService.analyzePaper(
+                    imageJPEGData: imageData,
+                    provider: provider,
+                    config: config,
+                    pageNumber: pageNumber,
+                    promptSuffix: promptSuffix
+                )
+            } catch {
+                if attempt == 0 { throw error }
+                continue
+            }
+
+            let itemsToUse = normalizeItemsForProvider(provider, result.normalizedItems)
+            // 首页必须是试卷；后续页若识别为非试卷但有有效题目也允许
+            if !result.is_homework_or_exam && !(allowNonExamIfHasItems && !itemsToUse.isEmpty) {
+                if attempt == 0 && !allowNonExamIfHasItems {
+                    return nil
+                }
+                continue
+            }
+
+            debugPrintParseItems(
+                attempt: current,
+                rawItems: result.normalizedItems.map { r in (type: r.type, subtype: r.subtype, content: r.content) },
+                normalizedItems: itemsToUse,
+                phase: debugPhase
+            )
+
+            let itemsSummary = itemsToUse
+                .map { "[\($0.type)]\($0.subtype.map { "/\($0)" } ?? "") \(String($0.content.prefix(400)))" }
+                .joined(separator: "\n\n")
+
+            let validation: PaperValidationResult
+            do {
+                progress?(L10n.analyzeStageValidating(current: current, total: 3))
+                validation = try await LLMService.validatePaperResult(
+                    imageJPEGData: imageData,
+                    itemsSummary: itemsSummary,
+                    provider: provider,
+                    config: config
+                )
+            } catch {
+                if attempt == 0 { throw error }
+                continue
+            }
+
+            var score = validation.score ?? 0
+            // 额外自检：若存在「选择题 + option_bboxes + content 中没有任何 A./B./C./D. 行」，说明上一次遗漏了选项，强制视为解析不完整以触发重试
+            if hasChoiceQuestionMissingOptions(itemsToUse) {
+                print("[camit] \(caller): 检测到选择题只包含题干未包含选项，降低本次解析得分以触发重试")
+                score = min(score, parseSuccessScoreThreshold - 1)
+            }
+
+            if score > bestScore {
+                bestScore = score
+                bestResult = result
+                bestItemsToUse = itemsToUse
+            }
+            if score >= parseSuccessScoreThreshold {
+                break
+            }
+        }
+
+        guard let finalResult = bestResult, !bestItemsToUse.isEmpty else {
+            return nil
+        }
+        return (finalResult, bestItemsToUse)
+    }
+
+    /// 是否存在「选择题 + option_bboxes + content 中没有任何 A./B./C./D. 行」的情况
+    /// 这通常意味着 VL 只写了题干却漏掉了文字选项，需要强制重试并在提示词中强调补全选项
+    private func hasChoiceQuestionMissingOptions(_ items: [NormalizedItem]) -> Bool {
+        for item in items {
+            let t = normalizeItemType(item.type)
+            guard t == "题目" else { continue }
+            // 仅关注存在 option_bboxes 的题目（VL 已检测到选项区域）
+            guard let optionBboxes = item.optionBboxes, !optionBboxes.isEmpty else { continue }
+            if contentLooksLikeStemOnly(item.content) {
+                return true
+            }
+        }
+        return false
     }
 
     /// 将归一化 bbox 转为像素 y 范围，并 clamp 到 [0, imageHeight]
