@@ -86,9 +86,8 @@ final class ScanStore: ObservableObject {
 
         let subject = Subject(rawValue: result.subject) ?? .other
         let grade = Grade(rawValue: result.grade) ?? .other
-        let totalCount = bestItemsToUse.count
         let questions: [PaperQuestion] = bestItemsToUse.enumerated().map { idx, item in
-            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx, totalCount: totalCount, provider: provider)
+            let cropFileName = cropQuestionImage(from: image, items: bestItemsToUse, index: idx, provider: provider)
             let isQuestionItem = normalizeItemType(item.type) == "题目"
             let idxValue: Int? = isQuestionItem ? (idx + 1) : nil
             let processedContent = replaceTianziGeWithUnderline(item.content)
@@ -213,10 +212,9 @@ final class ScanStore: ObservableObject {
         items[i].imageFileNames.append(fileName)
 
         let startIndex = items[i].questions.count
-        let totalCount = bestItemsToUse.count
         let newQuestions: [PaperQuestion] = bestItemsToUse.enumerated().map { idx, item in
             // index 仅用于可作答小题（type=题目），表示整份试卷中的题号
-            let cropFileName = cropQuestionImage(from: image, bbox: item.bbox, index: idx, totalCount: totalCount, provider: provider)
+            let cropFileName = cropQuestionImage(from: image, items: bestItemsToUse, index: idx, provider: provider)
             let isQuestionItem = normalizeItemType(item.type) == "题目"
             let idxValue: Int? = isQuestionItem ? (startIndex + idx + 1) : nil
             let processedContent = replaceTianziGeWithUnderline(item.content)
@@ -436,72 +434,99 @@ final class ScanStore: ObservableObject {
         let maxBottom = max(a.y + a.height, b.y + b.height)
         return BBox(x: 0, y: minY, width: 1, height: maxBottom - minY)
     }
+    
+    /// bbox 是否可用于裁切：放宽校验，允许 y>1（页面底部内容 VL 常返回 1.02 等）
+    private func isBBoxUsableForCrop(_ b: BBox) -> Bool {
+        guard b.width > 0, b.height > 0 else { return false }
+        guard b.x >= -0.02, b.x <= 1.02, b.y >= -0.02, b.y <= 1.2 else { return false }
+        return true
+    }
 
+    /// 将归一化 bbox 转为像素 y 范围，并 clamp 到 [0, imageHeight]
+    private func bboxToPixelYRange(_ b: BBox, imageHeight: CGFloat) -> (top: CGFloat, bottom: CGFloat) {
+        let yNorm = max(0, min(1, b.y))
+        let bottomNorm = max(0, min(1, b.y + b.height))
+        let top = yNorm * imageHeight
+        let bottom = max(top, bottomNorm * imageHeight)
+        return (top, min(imageHeight, bottom))
+    }
 
-    /// 根据 bbox 从图片中切出题目横条；扩充比例按供应商区分。当 bbox 为空（如 OpenAI 未返回）时按题目序号均分高度估算区域
-    private func cropQuestionImage(from image: UIImage, bbox: BBox?, index: Int, totalCount: Int, provider: LLMProvider) -> String? {
-        // 对部分模型返回的 bbox 做简单校验（坐标超界或高度太小则视为无效）
-        let isValidBBox: (BBox) -> Bool = { b in
-            return b.x >= 0 &&
-                b.y >= 0 &&
-                b.width > 0 &&
-                b.height > 0 &&
-                b.x <= 1 &&
-                b.y <= 1
-        }
-
-        let effectiveBbox: BBox
-        if let b = bbox, isValidBBox(b) {
-            effectiveBbox = b
-        } else if totalCount > 0 {
-            let n = Double(totalCount)
-            let clampedIndex = max(0, min(index, Int(n) - 1))
-            let stripHeight = 1.0 / n
-            effectiveBbox = BBox(
-                x: 0,
-                y: Double(clampedIndex) * stripHeight,
-                width: 1,
-                height: stripHeight
-            )
-        } else {
-            return nil
-        }
-
-        // 先校正图片方向，确保 cgImage 的宽高和显示方向一致
+    /// 以 VL bbox 为主做裁切，上下各留少量边距；无 bbox 时回退为上一项底～下一项顶。支持 y>1 的页面底部 bbox（clamp 后使用）。
+    private func cropQuestionImage(
+        from image: UIImage,
+        items: [(type: String, subtype: String?, content: String, bbox: BBox?)],
+        index: Int,
+        provider: LLMProvider
+    ) -> String? {
         let normalizedImage = normalizeImageOrientation(image)
         guard let cgImage = normalizedImage.cgImage else { return nil }
-
         let imageWidth = CGFloat(cgImage.width)
         let imageHeight = CGFloat(cgImage.height)
 
-        // 归一化坐标转像素坐标
-        let bboxY = CGFloat(effectiveBbox.y) * imageHeight
-        let bboxHeight = CGFloat(effectiveBbox.height) * imageHeight
+        let marginPx: CGFloat = 4
+        let upwardExpansion: CGFloat = min(90, imageHeight * 0.12)  // 向上多扩 90px 或 12% 高度，补偿 VL bbox 系统性偏低
 
-        // 宽度：整个试卷宽度（不裁剪左右）
-        let x: CGFloat = 0
-        let width = imageWidth
+        var cropTop: CGFloat
+        var cropBottom: CGFloat
 
-        // 高度：按供应商区分扩充比例（Bailian 正确；Gemini/OpenAI 上部多扩 50% 以弥补 bbox 偏小）
-        let (expandTopRatio, expandBottomRatio): (CGFloat, CGFloat) = {
-            switch provider {
-            case .bailian:
-                return (1.0, 0.5)   // 上部 100%，下部 50%
-            case .gemini, .openai:
-                return (1.5, 0.5)   // 上部 150%，下部 50%
+        if let cur = items[index].bbox, isBBoxUsableForCrop(cur) {
+            let (py, bottomPx) = bboxToPixelYRange(cur, imageHeight: imageHeight)
+            cropTop = max(0, py - marginPx - upwardExpansion)
+            cropBottom = min(imageHeight, bottomPx + marginPx)
+            // 页面底部特殊处理：若当前 bbox 顶部十分靠下或高度异常小，则用上一题的底部到页面底部作为区域
+            if (cropBottom <= cropTop + 1 || cur.y >= 0.98),
+               index > 0,
+               let prev = items[index - 1].bbox,
+               isBBoxUsableForCrop(prev) {
+                let (_, prevBottomPx) = bboxToPixelYRange(prev, imageHeight: imageHeight)
+                cropTop = max(0, prevBottomPx - marginPx - upwardExpansion)
+                cropBottom = imageHeight
             }
-        }()
-        let expandHeightTop = bboxHeight * expandTopRatio
-        let expandHeightBottom = bboxHeight * expandBottomRatio
-        let y = max(0, bboxY - expandHeightTop)
-        var height = bboxHeight + expandHeightTop + expandHeightBottom
-        
-        // 确保不超出图片边界
-        if y + height > imageHeight {
-            height = imageHeight - y
+        } else {
+            // 无 bbox：使用上一题底部与下一题顶部之间的区域
+            let prevBottom: CGFloat
+            if index > 0, let prev = items[index - 1].bbox, isBBoxUsableForCrop(prev) {
+                let (_, pb) = bboxToPixelYRange(prev, imageHeight: imageHeight)
+                prevBottom = pb
+            } else {
+                prevBottom = 0
+            }
+            let nextTop: CGFloat
+            if index < items.count - 1, let next = items[index + 1].bbox, isBBoxUsableForCrop(next) {
+                let (nt, _) = bboxToPixelYRange(next, imageHeight: imageHeight)
+                nextTop = nt
+            } else {
+                nextTop = imageHeight
+            }
+            cropTop = max(0, prevBottom - marginPx - upwardExpansion)
+            cropBottom = min(imageHeight, nextTop + marginPx)
         }
 
-        let cropRect = CGRect(x: x, y: y, width: width, height: height)
+        let bottomClamped = max(cropBottom, cropTop + 1)
+        let cropH = max(1, bottomClamped - cropTop)
+        let cropRect = CGRect(x: 0, y: cropTop, width: imageWidth, height: cropH)
+
+        // 调试日志：方便后续排查切图偏移
+        let curBboxStr: String
+        if let cur = items[index].bbox, isBBoxUsableForCrop(cur) {
+            let px = max(0, min(1, cur.x)) * imageWidth
+            let (py, pb) = bboxToPixelYRange(cur, imageHeight: imageHeight)
+            curBboxStr = "x=\(px) y=\(py) 宽=\(imageWidth) 高=\(pb - py) px"
+        } else {
+            curBboxStr = "无"
+        }
+        let nextBboxStr: String
+        if index < items.count - 1, let next = items[index + 1].bbox, isBBoxUsableForCrop(next) {
+            let px = max(0, min(1, next.x)) * imageWidth
+            let (py, pb) = bboxToPixelYRange(next, imageHeight: imageHeight)
+            nextBboxStr = "x=\(px) y=\(py) 宽=\(imageWidth) 高=\(pb - py) px"
+        } else {
+            nextBboxStr = "无"
+        }
+        print("---坐标---题目[\(index + 1)] 当前题bbox \(curBboxStr)")
+        print("---坐标---题目[\(index + 1)] 下一题bbox \(nextBboxStr)")
+        print("---坐标---题目[\(index + 1)] 切图 x=\(cropRect.origin.x) y=\(cropRect.origin.y) 宽=\(cropRect.width) 高=\(cropRect.height)")
+
         guard let croppedCGImage = cgImage.cropping(to: cropRect) else { return nil }
         let croppedImage = UIImage(cgImage: croppedCGImage)
 
