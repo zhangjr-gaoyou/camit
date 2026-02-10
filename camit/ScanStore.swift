@@ -372,10 +372,48 @@ final class ScanStore: ObservableObject {
                 i += 2
                 continue
             }
+            // 填空题「一题干+多填空小题」：题干（如「在（）里填上">"、"<"或"="。」）后跟多条填空小题（如 80毫升（＜）8升），合并为一条
+            if current.type == "题目", (current.subtype ?? "") == "填空题", contentLooksLikeFillInStemOnly(current.content),
+               i + 1 < items.count {
+                var j = i + 1
+                var subParts: [String] = [current.content.trimmingCharacters(in: .whitespacesAndNewlines)]
+                var mergedBbox = current.bbox
+                while j < items.count, items[j].type == "题目", (items[j].subtype ?? "") == "填空题",
+                      contentLooksLikeFillInSubItem(items[j].content), !contentStartsNewQuestionNumber(items[j].content) {
+                    subParts.append(items[j].content.trimmingCharacters(in: .whitespacesAndNewlines))
+                    mergedBbox = unionBBox(mergedBbox, items[j].bbox)
+                    j += 1
+                }
+                if subParts.count > 1 {
+                    let mergedContent = subParts.joined(separator: "\n\n")
+                    result.append(("题目", "填空题", mergedContent, mergedBbox))
+                    i = j
+                    continue
+                }
+            }
             result.append(current)
             i += 1
         }
         return result
+    }
+
+    /// 是否为填空题的「题干」：如「在（）里填上">"、"<"或"="。」，一句或两句，以句号或」结尾
+    private func contentLooksLikeFillInStemOnly(_ content: String) -> Bool {
+        let t = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return false }
+        let hasStemMarker = t.contains("填上") || t.contains("里填")
+        let lineCount = t.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }.count
+        let endsWithInstruction = t.hasSuffix("。") || t.hasSuffix("」") || t.hasSuffix("=")
+        return hasStemMarker && lineCount <= 3 && endsWithInstruction
+    }
+
+    /// 是否为填空题的「填空小题项」：短句、不以题号「N.」开头，常含（）、＜＞＝或单位等
+    private func contentLooksLikeFillInSubItem(_ content: String) -> Bool {
+        let t = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, t.count <= 120 else { return false }
+        if contentStartsNewQuestionNumber(t) { return false }
+        let lines = t.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return lines.count <= 2
     }
 
     private func contentLooksLikeStemOnly(_ content: String) -> Bool {

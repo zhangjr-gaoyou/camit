@@ -138,14 +138,23 @@ struct BailianClient {
         
         var jsonText = extractFirstJSONObject(from: content) ?? content
         jsonText = repairPaperVisionJson(jsonText)
-        guard let jsonData = jsonText.data(using: .utf8),
-              let result = try? JSONDecoder().decode(PaperVisionResult.self, from: jsonData)
-        else {
+        guard let jsonData = jsonText.data(using: .utf8) else {
             throw BailianError.invalidResponseJSON(raw: content)
         }
-        
-
-        return result
+        do {
+            return try JSONDecoder().decode(PaperVisionResult.self, from: jsonData)
+        } catch {
+            // 记录解码错误与修复后的 JSON，便于排查
+            print("[camit:model] analyzePaper decode error: \(error)")
+            print("[camit:model] analyzePaper repaired JSON text:\n\(jsonText)")
+            // 使用通用 JSON 修复逻辑再尝试一次
+            let fallbackText = repairJsonForParsing(jsonText)
+            if let data2 = fallbackText.data(using: .utf8),
+               let result2 = try? JSONDecoder().decode(PaperVisionResult.self, from: data2) {
+                return result2
+            }
+            throw BailianError.invalidResponseJSON(raw: content)
+        }
     }
 
     /// 使用 VL 模型校验解析结果：题干/题目区分、边界是否合理

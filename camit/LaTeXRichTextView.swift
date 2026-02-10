@@ -7,6 +7,7 @@ struct LaTeXRichTextView: View {
     let font: Font
     let weight: Font.Weight
     let isSection: Bool
+    @Environment(\.colorScheme) private var colorScheme
 
     init(_ raw: String, isSection: Bool = false) {
         self.raw = raw
@@ -28,8 +29,9 @@ struct LaTeXRichTextView: View {
                 .fontWeight(weight)
                 .blockMode(useBlockMode ? .blockViews : .alwaysInline)
                 .errorMode(.original)
-                .imageRenderingMode(.original)
-                .renderingStyle(.original)
+                // 使用模板渲染，让公式遵循当前前景色（适配深色/浅色模式）
+                .imageRenderingMode(.template)
+                .foregroundStyle(.primary)
                 .fixedSize(horizontal: false, vertical: true)
         } else {
             fillBlankOnlyView
