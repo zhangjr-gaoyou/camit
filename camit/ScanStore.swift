@@ -348,6 +348,18 @@ final class ScanStore: ObservableObject {
         var i = 0
         while i < items.count {
             let current = items[i]
+            // 「请用楷书抄写下面的文字……（3分）」+ 待抄写段落：当前误识别为 答题说明+题干，合并为一条 题目/填空题
+            if current.type == "答题说明", i + 1 < items.count, items[i + 1].type == "题干",
+               contentLooksLikeCopyInstruction(current.content), contentLooksLikeParagraphToCopy(items[i + 1].content) {
+                let next = items[i + 1]
+                let mergedContent = current.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                    + "\n\n"
+                    + next.content.trimmingCharacters(in: .whitespacesAndNewlines)
+                let mergedBbox = unionBBox(current.bbox, next.bbox)
+                result.append(("题目", "填空题", mergedContent, mergedBbox))
+                i += 2
+                continue
+            }
             if current.type == "题干", i + 1 < items.count, items[i + 1].type == "题目",
                !contentStartsNewQuestionNumber(items[i + 1].content) {
                 let next = items[i + 1]
@@ -414,6 +426,22 @@ final class ScanStore: ObservableObject {
         if contentStartsNewQuestionNumber(t) { return false }
         let lines = t.components(separatedBy: .newlines).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
         return lines.count <= 2
+    }
+
+    /// 是否为「抄写题」的作答要求：如「请用楷书抄写下面的文字……（3分）」
+    private func contentLooksLikeCopyInstruction(_ content: String) -> Bool {
+        let t = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return false }
+        return (t.contains("抄写") && (t.contains("下面的文字") || t.contains("下面"))) || (t.contains("书写") && t.contains("工整"))
+    }
+
+    /// 是否为待抄写/待填空的段落：整段叙述、以句号结尾、无选项（无 A./B./C./D.）、无问号
+    private func contentLooksLikeParagraphToCopy(_ content: String) -> Bool {
+        let t = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty, t.count >= 20 else { return false }
+        if t.contains("？") || t.contains("?") { return false }
+        if contentLooksLikeOptionsOnly(t) { return false }
+        return t.hasSuffix("。") || t.hasSuffix("」")
     }
 
     private func contentLooksLikeStemOnly(_ content: String) -> Bool {
