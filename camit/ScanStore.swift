@@ -360,6 +360,27 @@ final class ScanStore: ObservableObject {
                 i += 2
                 continue
             }
+            // 「2. 单位换算。」这类多空填空：整块视为一题，后续被模型拆出的换算小题块需与之合并
+            if current.type == "题目", (current.subtype ?? "") == "填空题",
+               contentLooksLikeUnitConversionBlock(current.content), i + 1 < items.count {
+                var j = i + 1
+                var parts: [String] = [current.content.trimmingCharacters(in: .whitespacesAndNewlines)]
+                var mergedBbox = current.bbox
+                while j < items.count,
+                      items[j].type == "题目",
+                      (items[j].subtype ?? "") == "填空题",
+                      contentLooksLikeUnitConversionContinuation(items[j].content) {
+                    parts.append(items[j].content.trimmingCharacters(in: .whitespacesAndNewlines))
+                    mergedBbox = unionBBox(mergedBbox, items[j].bbox)
+                    j += 1
+                }
+                if parts.count > 1 {
+                    let mergedContent = parts.joined(separator: "\n")
+                    result.append(("题目", "填空题", mergedContent, mergedBbox))
+                    i = j
+                    continue
+                }
+            }
             if current.type == "题干", i + 1 < items.count, items[i + 1].type == "题目",
                !contentStartsNewQuestionNumber(items[i + 1].content) {
                 let next = items[i + 1]
@@ -444,6 +465,29 @@ final class ScanStore: ObservableObject {
         return t.hasSuffix("。") || t.hasSuffix("」")
     }
 
+    /// 是否为「单位换算」整块题目（含题干+若干小题）：首行含「单位换算」
+    private func contentLooksLikeUnitConversionBlock(_ content: String) -> Bool {
+        let lines = content.components(separatedBy: .newlines)
+        guard let first = lines.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return false }
+        let t = first.trimmingCharacters(in: .whitespaces)
+        return t.contains("单位换算")
+    }
+
+    /// 是否为「单位换算」被拆出的续块：主要包含若干带等号和括号的换算式
+    /// 注意：这里不依赖题号判断，避免误将小数（如 3.25）前面的整数识别为新小题号
+    private func contentLooksLikeUnitConversionContinuation(_ content: String) -> Bool {
+        let t = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !t.isEmpty else { return false }
+        // 必须包含等号或全角等号以及中文或单位字符，且包含括号表示填空
+        let hasEqual = t.contains("=") || t.contains("＝")
+        let hasBlank = t.contains("（") || t.contains("(")
+        if !hasEqual || !hasBlank { return false }
+        // 不应是选择题或完整问句
+        if t.contains("？") || t.contains("?") { return false }
+        if contentLooksLikeOptionsOnly(t) { return false }
+        return true
+    }
+
     private func contentLooksLikeStemOnly(_ content: String) -> Bool {
         let lines = content.components(separatedBy: .newlines)
         let hasOptionLine = lines.contains { line in
@@ -471,7 +515,8 @@ final class ScanStore: ObservableObject {
         return optionCount >= 2
     }
 
-    /// 内容是否以新题号开头（如 2. 3．），若是则不应与上一条合并
+    /// 内容是否以新题号开头（如 2. 3．），若是则不应与上一条合并。
+    /// 排除小数：若点号后紧跟数字（如 3.25立方分米）则为数值，非题号。
     private func contentStartsNewQuestionNumber(_ content: String) -> Bool {
         let lines = content.components(separatedBy: .newlines)
         guard let firstLine = lines.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return false }
@@ -480,8 +525,16 @@ final class ScanStore: ObservableObject {
         var i = t.startIndex
         while i < t.endIndex, t[i].isNumber { i = t.index(after: i) }
         guard i > t.startIndex, i < t.endIndex else { return false }
-        let next = t[i]
-        return next == "." || next == "．" || next == "、"
+        let sep = t[i]
+        guard sep == "." || sep == "．" || sep == "、" else { return false }
+        // 点号后紧跟数字 → 小数（3.25、2.5 等），非题号
+        if sep == "." || sep == "．" {
+            let afterIdx = t.index(after: i)
+            if afterIdx < t.endIndex, t[afterIdx].isNumber {
+                return false
+            }
+        }
+        return true
     }
 
     private func normalizeItemType(_ type: String) -> String {
@@ -517,7 +570,7 @@ final class ScanStore: ObservableObject {
         return (top, min(imageHeight, bottom))
     }
 
-    /// 以 VL bbox 为主做裁切，上下各留少量边距；无 bbox 时回退为上一项底～下一项顶。支持 y>1 的页面底部 bbox（clamp 后使用）。
+    /// 以 VL bbox 为主做裁切。VL 常有系统性偏低，上方需扩展以包含题干。参考此前方案：min(90px,12%高度)+题目高度取大值。
     private func cropQuestionImage(
         from image: UIImage,
         items: [(type: String, subtype: String?, content: String, bbox: BBox?)],
@@ -529,27 +582,37 @@ final class ScanStore: ObservableObject {
         let imageWidth = CGFloat(cgImage.width)
         let imageHeight = CGFloat(cgImage.height)
 
-        let marginPx: CGFloat = 4
-        let upwardExpansion: CGFloat = min(90, imageHeight * 0.12)  // 向上多扩 90px 或 12% 高度，补偿 VL bbox 系统性偏低
+        let marginPx: CGFloat = 6
+        let marginBottomPx: CGFloat = 12  // 下方多留，避免末行被截
+        /// 向上扩展量：取「题目高度」与「min(90px, 12%图高)」的较大者，补偿 VL bbox 系统性偏低
+        let baseExpandUp: CGFloat = min(90, imageHeight * 0.12)
 
         var cropTop: CGFloat
         var cropBottom: CGFloat
 
         if let cur = items[index].bbox, isBBoxUsableForCrop(cur) {
             let (py, bottomPx) = bboxToPixelYRange(cur, imageHeight: imageHeight)
-            cropTop = max(0, py - marginPx - upwardExpansion)
-            cropBottom = min(imageHeight, bottomPx + marginPx)
-            // 页面底部特殊处理：若当前 bbox 顶部十分靠下或高度异常小，则用上一题的底部到页面底部作为区域
+            let h = max(1, bottomPx - py)
+            let expandUp = max(h, baseExpandUp)  // 至少 min(90,12%)，或题目高度取大
+
+            cropTop = max(0, py - marginPx - expandUp)
+            cropBottom = min(imageHeight, bottomPx + marginBottomPx)
+
+            // 确保 bbox 完整落在裁切区内（防止边界计算误差）
+            cropTop = min(cropTop, py)
+            cropBottom = max(cropBottom, bottomPx)
+
+            // 页面底部特殊处理：bbox 异常靠下时，用「上一题底～页底」并向上扩展
             if (cropBottom <= cropTop + 1 || cur.y >= 0.98),
                index > 0,
                let prev = items[index - 1].bbox,
                isBBoxUsableForCrop(prev) {
                 let (_, prevBottomPx) = bboxToPixelYRange(prev, imageHeight: imageHeight)
-                cropTop = max(0, prevBottomPx - marginPx - upwardExpansion)
+                cropTop = max(0, prevBottomPx - marginPx - baseExpandUp)
                 cropBottom = imageHeight
             }
         } else {
-            // 无 bbox：使用上一题底部与下一题顶部之间的区域
+            // 无 bbox：上一项底～下一项顶，上方按 baseExpandUp 扩展
             let prevBottom: CGFloat
             if index > 0, let prev = items[index - 1].bbox, isBBoxUsableForCrop(prev) {
                 let (_, pb) = bboxToPixelYRange(prev, imageHeight: imageHeight)
@@ -564,8 +627,8 @@ final class ScanStore: ObservableObject {
             } else {
                 nextTop = imageHeight
             }
-            cropTop = max(0, prevBottom - marginPx - upwardExpansion)
-            cropBottom = min(imageHeight, nextTop + marginPx)
+            cropTop = max(0, prevBottom - marginPx - baseExpandUp)
+            cropBottom = min(imageHeight, nextTop + marginBottomPx)
         }
 
         let bottomClamped = max(cropBottom, cropTop + 1)

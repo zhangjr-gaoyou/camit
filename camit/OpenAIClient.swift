@@ -79,11 +79,21 @@ struct OpenAIClient {
         debugLogModelResponse(api: "analyzePaper", content: content)
         var jsonText = extractFirstJSONObject(from: content) ?? content
         jsonText = repairPaperVisionJson(jsonText)
-        guard let jsonData = jsonText.data(using: .utf8),
-              let result = try? JSONDecoder().decode(PaperVisionResult.self, from: jsonData) else {
+        guard let jsonData = jsonText.data(using: .utf8) else {
             throw BailianError.invalidResponseJSON(raw: content)
         }
-        return result
+        do {
+            return try JSONDecoder().decode(PaperVisionResult.self, from: jsonData)
+        } catch {
+            print("[camit:model] analyzePaper decode error: \(error)")
+            print("[camit:model] analyzePaper repaired JSON text:\n\(jsonText)")
+            let fallbackText = repairJsonForParsing(jsonText)
+            if let data2 = fallbackText.data(using: .utf8),
+               let result2 = try? JSONDecoder().decode(PaperVisionResult.self, from: data2) {
+                return result2
+            }
+            throw BailianError.invalidResponseJSON(raw: content)
+        }
     }
 
     func validatePaperResult(imageJPEGData: Data, itemsSummary: String, config: OpenAIConfig) async throws -> PaperValidationResult {

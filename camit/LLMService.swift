@@ -44,4 +44,24 @@ enum LLMService {
             return try await GeminiClient().analyzeQuestion(question: question, subject: subject, grade: grade, config: c)
         }
     }
+
+    /// 使用 "hi" 测试模型连接，成功返回 nil，失败返回错误描述
+    static func testConnection(provider: LLMProvider, config: any LLMConfigProtocol) async -> String? {
+        do {
+            switch provider {
+            case .bailian:
+                guard let c = config as? BailianConfig else { return L10n.settingsConfigInvalid }
+                _ = try await BailianClient().chat(prompt: "hi", config: c)
+            case .openai:
+                guard let c = config as? OpenAIConfig else { return L10n.settingsConfigInvalid }
+                _ = try await OpenAIClient().chat(prompt: "hi", config: c)
+            case .gemini:
+                guard let c = config as? GeminiConfig else { return L10n.settingsConfigInvalid }
+                _ = try await GeminiClient().chat(prompt: "hi", config: c)
+            }
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
 }

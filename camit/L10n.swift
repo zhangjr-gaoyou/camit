@@ -12,6 +12,11 @@ enum L10n {
     static var settingsTitle: String { isChinese ? "设置" : "Settings" }
     static var settingsClose: String { isChinese ? "关闭" : "Close" }
     static var settingsSave: String { isChinese ? "保存" : "Save" }
+    static var settingsTestConnection: String { isChinese ? "连接测试" : "Test Connection" }
+    static var settingsConnectionOK: String { isChinese ? "连接正常" : "Connection OK" }
+    static var settingsConnectionError: String { isChinese ? "连接失败：" : "Connection failed: " }
+    static var settingsTestingConnection: String { isChinese ? "测试连接中…" : "Testing…" }
+    static var settingsConfigInvalid: String { isChinese ? "配置无效" : "Invalid config" }
     static var settingsApiKeyRequired: String { isChinese ? "请先在设置里填写 API Key。" : "Please configure API Key in Settings first." }
     static var settingsVLModelRequired: String { isChinese ? "请先在设置里填写 VL 模型名称。" : "Please configure VL model name in Settings first." }
     static var settingsConfigRequiredForCamera: String { isChinese ? "请先在设置中配置当前服务的 API Key 及 VL 模型后再拍照。" : "Please configure API Key and VL model for the current provider in Settings before taking a photo." }

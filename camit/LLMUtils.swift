@@ -60,6 +60,11 @@ func repairPaperVisionJson(_ json: String) -> String {
         let range = NSRange(s.startIndex..., in: s)
         s = r2e.stringByReplacingMatches(in: s, range: range, withTemplate: #"\"",$1\"bbox\""#)
     }
+    // 2f) OpenAI 等模型有时返回 "bbox": {}（空对象），BBox 解码要求 x/y/width/height，空对象会失败，转为 null
+    if let r2f = try? NSRegularExpression(pattern: #""bbox"\s*:\s*\{\s*}"#) {
+        let range = NSRange(s.startIndex..., in: s)
+        s = r2f.stringByReplacingMatches(in: s, range: range, withTemplate: "\"bbox\": null")
+    }
     // 3) 尾逗号：,} -> } 或 ,] -> ]
     if let r1 = try? NSRegularExpression(pattern: #",(\s*})"#) {
         s = r1.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "$1")
@@ -154,7 +159,7 @@ private func deduplicateJsonKeys(_ json: String) -> String {
     return s
 }
 
-/// 将 JSON 字符串值中的字面换行替换为 \\n（仅处理双引号内的内容）
+/// 将 JSON 字符串值中的字面换行替换为 \\n，并转义字符串内未转义的 "（如 content 中填上"＞"、"＜" 导致 JSON 断裂）
 private func escapeNewlinesInJsonStrings(_ json: String) -> String {
     var result = ""
     var inString = false
@@ -163,8 +168,31 @@ private func escapeNewlinesInJsonStrings(_ json: String) -> String {
     while i < json.endIndex {
         let ch = json[i]
         if ch == "\"" && prev != "\\" {
-            inString.toggle()
-            result.append(ch)
+            if inString {
+                // 可能为结束引号或内容中的未转义 "。若其后（跳过空白）是 ,}:] 则为结束引号；
+                // 若跳过空白后是 "（如 "\n      "bbox"）也为结束；但 "" 相邻（如 "＞""＜"）则为内容，需转义
+                var j = json.index(after: i)
+                let startJ = j
+                while j < json.endIndex && json[j].isWhitespace { j = json.index(after: j) }
+                if j < json.endIndex {
+                    let next = json[j]
+                    let skippedWs = j > startJ
+                    if next == "," || next == "}" || next == "]" || next == ":" {
+                        inString = false
+                        result.append(ch)
+                    } else if next == "\"" && skippedWs {
+                        inString = false
+                        result.append(ch)
+                    } else {
+                        result.append("\\\"")
+                    }
+                } else {
+                    result.append("\\\"")
+                }
+            } else {
+                inString = true
+                result.append(ch)
+            }
         } else if inString && (ch == "\n" || ch == "\r") {
             result.append("\\n")
             if ch == "\r" && json.index(after: i) < json.endIndex && json[json.index(after: i)] == "\n" {
@@ -189,6 +217,9 @@ func repairJsonForParsing(_ json: String) -> String {
     }
     if let r2e = try? NSRegularExpression(pattern: #"(?<=[0-9a-zA-Z\)）]),(\s*\n\s*)\"bbox\""#) {
         s = r2e.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: #"\"",$1\"bbox\""#)
+    }
+    if let r2f = try? NSRegularExpression(pattern: #""bbox"\s*:\s*\{\s*}"#) {
+        s = r2f.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "\"bbox\": null")
     }
     if let r2 = try? NSRegularExpression(pattern: #",(\s*})"#) {
         s = r2.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "$1")

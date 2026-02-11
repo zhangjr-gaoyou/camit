@@ -327,32 +327,8 @@ private struct ItemCard: View {
         return ""
     }
 
-    /// 当已显示题号（如「第7题」）时，去掉题干开头的题号前缀（如「7.」「第7题」），避免重复显示。
+    /// 题干显示文本：保留题目前的原始序号，不再去掉「7.」「第7题」前缀
     private func stemForDisplay(_ raw: String) -> String {
-        guard !questionIndexText.isEmpty else { return raw }
-        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !s.isEmpty else { return raw }
-        // 去掉开头的 "7." / "7．" / "7、" / "第7题"
-        if let idx = question.index {
-            for prefix in ["第\(idx)题", "\(idx)．", "\(idx)、", "\(idx)."] {
-                if s.hasPrefix(prefix) {
-                    let rest = String(s[s.index(s.startIndex, offsetBy: prefix.count)...])
-                        .trimmingCharacters(in: .whitespaces)
-                    return rest.isEmpty ? raw : rest
-                }
-            }
-        }
-        // 任意「数字 + .／、」开头也去掉（与当前题号无关的题干题号）
-        var i = s.startIndex
-        while i < s.endIndex, s[i].isNumber { i = s.index(after: i) }
-        if i > s.startIndex, i < s.endIndex {
-            let next = s[i]
-            if next == "." || next == "．" || next == "、" {
-                i = s.index(after: i)
-                let rest = String(s[i...]).trimmingCharacters(in: .whitespaces)
-                return rest.isEmpty ? raw : rest
-            }
-        }
         return raw
     }
 

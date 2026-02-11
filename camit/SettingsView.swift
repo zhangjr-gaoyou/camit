@@ -20,6 +20,8 @@ struct SettingsView: View {
     @State private var geminiBaseURL: String = ""
     @State private var alertMessage: String?
     @State private var showHelpSheet: Bool = false
+    @State private var connectionTestMessage: String?
+    @State private var connectionTestLoading: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -27,7 +29,8 @@ struct SettingsView: View {
                 VStack(spacing: 20) {
                     providerSection
                     providerConfigSection
-                    saveButton
+                    connectionTestResult
+                    saveAndTestButtons
                     privacyNotice
                 }
                 .padding(16)
@@ -186,14 +189,54 @@ struct SettingsView: View {
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
     }
 
-    private var saveButton: some View {
-        Button(L10n.settingsSave) { save() }
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(AppTheme.accentBlue)
+    @ViewBuilder
+    private var connectionTestResult: some View {
+        if let msg = connectionTestMessage {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: msg.isEmpty ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .foregroundStyle(msg.isEmpty ? AppTheme.accentGreen : .orange)
+                Text(msg.isEmpty ? L10n.settingsConnectionOK : (L10n.settingsConnectionError + msg))
+                    .font(.subheadline)
+                    .foregroundStyle(msg.isEmpty ? AppTheme.accentGreen : .orange)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background((msg.isEmpty ? AppTheme.accentGreen : Color.orange).opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
+        }
+    }
+
+    private var saveAndTestButtons: some View {
+        HStack(spacing: 12) {
+            Button(L10n.settingsSave) { save() }
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(AppTheme.accentBlue)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
+                .disabled(connectionTestLoading)
+
+            Button {
+                testConnection()
+            } label: {
+                if connectionTestLoading {
+                    ProgressView()
+                        .scaleEffect(0.9)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                } else {
+                    Text(L10n.settingsTestConnection)
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(AppTheme.accentBlue)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+            }
+            .background(Color(.systemGray5))
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
+            .disabled(connectionTestLoading)
+        }
     }
 
     private var privacyNotice: some View {
@@ -218,6 +261,48 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             content()
+        }
+    }
+
+    private func currentConfig() -> any LLMConfigProtocol {
+        switch settings.provider {
+        case .bailian:
+            var c = BailianConfig()
+            c.apiKey = bailianApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            c.model = bailianModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            c.vlModel = bailianVLModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            let bURL = bailianBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            c.baseURL = bURL.isEmpty ? BailianConfig().baseURL : bURL
+            return c
+        case .openai:
+            var c = OpenAIConfig()
+            c.apiKey = openAIApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            c.model = openAIModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            c.vlModel = openAIVLModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            let oURL = openAIBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            c.baseURL = oURL.isEmpty ? OpenAIConfig().baseURL : oURL
+            return c
+        case .gemini:
+            var c = GeminiConfig()
+            c.apiKey = geminiApiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            c.model = geminiModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            c.vlModel = geminiVLModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            let gURL = geminiBaseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+            c.baseURL = gURL.isEmpty ? GeminiConfig().baseURL : gURL
+            return c
+        }
+    }
+
+    private func testConnection() {
+        connectionTestMessage = nil
+        connectionTestLoading = true
+        Task {
+            let config = currentConfig()
+            let errorMsg = await LLMService.testConnection(provider: settings.provider, config: config)
+            await MainActor.run {
+                connectionTestLoading = false
+                connectionTestMessage = errorMsg ?? ""
+            }
         }
     }
 
