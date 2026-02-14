@@ -13,7 +13,7 @@ struct HomeView: View {
     @State private var selectedScore: ScoreFilter = .all
 
     @State private var isShowingSettings: Bool = false
-    @State private var isShowingNotifications: Bool = false
+    @State private var isShowingLearningReport: Bool = false
 
     @State private var viewerItem: ScanItem?
 
@@ -33,6 +33,14 @@ struct HomeView: View {
         }
     }
 
+    private var baseArchivedItems: [ScanItem] {
+        store.items.filter {
+            $0.isArchived &&
+            $0.isHomeworkOrExam &&
+            !$0.imageFileNames.isEmpty
+        }
+    }
+
     private var filteredItems: [ScanItem] {
         var results = baseItems
         if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -43,6 +51,17 @@ struct HomeView: View {
         if let s = selectedSubject { results = results.filter { $0.subject == s } }
         // score filter 预留，将来可根据 score 字段补充
         return results
+    }
+
+    private var filteredArchivedItems: [ScanItem] {
+        var results = baseArchivedItems
+        if !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let q = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+            results = results.filter { $0.title.localizedCaseInsensitiveContains(q) }
+        }
+        if let g = selectedGrade { results = results.filter { $0.grade == g } }
+        if let s = selectedSubject { results = results.filter { $0.subject == s } }
+        return results.sorted { $0.createdAt > $1.createdAt }
     }
 
     /// 本周所有试卷（按创建时间范围），用于「本周 / 最近添加」区块
@@ -79,6 +98,7 @@ struct HomeView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     section(title: L10n.homeRecent, items: recentItems)
                     section(title: L10n.homeLastWeek, items: lastWeekItems)
+                    section(title: L10n.homeArchived, items: filteredArchivedItems, isArchived: true)
                 }
                 .padding(.horizontal, 16)
                 .padding(.bottom, 100)
@@ -133,8 +153,14 @@ struct HomeView: View {
         }
         .confirmationDialog(L10n.paperActions, isPresented: $isShowingActions, titleVisibility: .visible) {
             if let target = actionTarget {
-                Button(L10n.archiveAction) {
-                    store.archive(scanID: target.id)
+                if target.isArchived {
+                    Button(L10n.unarchiveAction) {
+                        store.unarchive(scanID: target.id)
+                    }
+                } else {
+                    Button(L10n.archiveAction) {
+                        store.archive(scanID: target.id)
+                    }
                 }
                 Button(L10n.deleteAction, role: .destructive) {
                     store.delete(scanID: target.id)
@@ -142,10 +168,13 @@ struct HomeView: View {
             }
             Button(L10n.cancel, role: .cancel) {}
         }
-        .alert(L10n.notificationTitle, isPresented: $isShowingNotifications) {
-            Button(L10n.alertOK, role: .cancel) {}
-        } message: {
-            Text(L10n.noNotifications)
+        .sheet(isPresented: $isShowingLearningReport) {
+            LearningAnalysisReportView(settings: settings)
+                .environmentObject(store)
+#if !os(macOS)
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+#endif
         }
         .sheet(item: $editingItem) { item in
             PaperMetaEditorView(item: item) { title, grade, subject, score in
@@ -221,9 +250,10 @@ struct HomeView: View {
 
             Spacer()
 
-            CircleIconButton(systemName: "bell") {
-                isShowingNotifications = true
+            CircleIconButton(systemName: "chart.bar.doc.horizontal") {
+                isShowingLearningReport = true
             }
+            .accessibilityLabel(L10n.learningAnalysisTitle)
 
             CircleIconButton(systemName: "gearshape") {
                 isShowingSettings = true
@@ -295,21 +325,28 @@ struct HomeView: View {
         .padding(.horizontal, 16)
     }
 
-    private func section(title: String, items: [ScanItem]) -> some View {
+    private func section(title: String, items: [ScanItem], isArchived: Bool = false) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.headline.weight(.bold))
                 .foregroundStyle(.primary)
 
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
-                ForEach(items) { item in
-                    ScanCardView(
-                        item: item,
-                        onTapImage: { handleTap(on: item) },
-                        onLongPress: { handleLongPress(on: item) },
-                        onTapTitle: { handleEditMeta(on: item) },
-                        onAddImage: { addImageForItem = item }
-                    )
+            if items.isEmpty {
+                Text(isArchived ? L10n.homeArchivedEmpty : "")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.secondaryText)
+                    .padding(.vertical, 8)
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
+                    ForEach(items) { item in
+                        ScanCardView(
+                            item: item,
+                            onTapImage: { handleTap(on: item) },
+                            onLongPress: { handleLongPress(on: item) },
+                            onTapTitle: { handleEditMeta(on: item) },
+                            onAddImage: { addImageForItem = item }
+                        )
+                    }
                 }
             }
         }

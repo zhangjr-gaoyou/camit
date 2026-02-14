@@ -45,6 +45,21 @@ enum LLMService {
         }
     }
 
+    /// 纯文本对话，用于学习报告等非 JSON 场景
+    static func chat(prompt: String, provider: LLMProvider, config: any LLMConfigProtocol) async throws -> String {
+        switch provider {
+        case .bailian:
+            guard let c = config as? BailianConfig else { throw BailianError.invalidBaseURL }
+            return try await BailianClient().chat(prompt: prompt, config: c)
+        case .openai:
+            guard let c = config as? OpenAIConfig else { throw BailianError.invalidBaseURL }
+            return try await OpenAIClient().chat(prompt: prompt, config: c)
+        case .gemini:
+            guard let c = config as? GeminiConfig else { throw BailianError.invalidBaseURL }
+            return try await GeminiClient().chat(prompt: prompt, config: c)
+        }
+    }
+
     /// 使用 "hi" 测试模型连接，成功返回 nil，失败返回错误描述
     static func testConnection(provider: LLMProvider, config: any LLMConfigProtocol) async -> String? {
         do {

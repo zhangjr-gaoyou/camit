@@ -81,7 +81,7 @@ struct ScanItem: Identifiable, Codable, Equatable {
 
     enum CodingKeys: String, CodingKey {
         case id, title, createdAt, grade, subject, imageFileName, imageFileNames
-        case questions, isHomeworkOrExam, score
+        case questions, isHomeworkOrExam, isArchived, score
     }
 
     init(
@@ -131,7 +131,7 @@ struct ScanItem: Identifiable, Codable, Equatable {
         }
         questions = try c.decodeIfPresent([PaperQuestion].self, forKey: .questions) ?? []
         isHomeworkOrExam = try c.decodeIfPresent(Bool.self, forKey: .isHomeworkOrExam) ?? true
-        isArchived = false
+        isArchived = try c.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
         score = try c.decodeIfPresent(Int.self, forKey: .score)
     }
 
@@ -145,8 +145,20 @@ struct ScanItem: Identifiable, Codable, Equatable {
         try c.encode(imageFileNames, forKey: .imageFileNames)
         try c.encode(questions, forKey: .questions)
         try c.encode(isHomeworkOrExam, forKey: .isHomeworkOrExam)
+        try c.encode(isArchived, forKey: .isArchived)
         try c.encode(score, forKey: .score)
     }
+}
+
+/// 学习分析报告：持久化存储，支持按科目、年月筛选
+struct LearningReport: Identifiable, Codable, Equatable {
+    var id: UUID = UUID()
+    var createdAt: Date
+    var content: String
+    /// 生成时筛选的科目，nil 表示全部
+    var subjectFilter: Subject?
+    /// 生成时筛选的年月，格式 "yyyy-MM"，nil 表示全部
+    var yearMonthFilter: String?
 }
 
 /// 识别出的单项类型：板块分类、题干、题目（仅「题目」可生成答案与解析）

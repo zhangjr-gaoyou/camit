@@ -7,11 +7,14 @@ private let parseSuccessScoreThreshold = 75
 @MainActor
 final class ScanStore: ObservableObject {
     @Published private(set) var items: [ScanItem] = []
+    @Published private(set) var learningReports: [LearningReport] = []
 
     private let fileName = "scans.json"
+    private let reportsFileName = "learning_reports.json"
 
     init() {
         load()
+        loadReports()
         if items.isEmpty {
             seed()
         }
@@ -134,6 +137,28 @@ final class ScanStore: ObservableObject {
         guard let i = items.firstIndex(where: { $0.id == scanID }) else { return }
         items[i].isArchived = true
         save()
+    }
+
+    func unarchive(scanID: UUID) {
+        guard let i = items.firstIndex(where: { $0.id == scanID }) else { return }
+        items[i].isArchived = false
+        save()
+    }
+
+    func addLearningReport(content: String, subjectFilter: Subject?, yearMonthFilter: String?) {
+        let report = LearningReport(
+            createdAt: Date(),
+            content: content,
+            subjectFilter: subjectFilter,
+            yearMonthFilter: yearMonthFilter
+        )
+        learningReports.insert(report, at: 0)
+        saveReports()
+    }
+
+    func deleteLearningReport(id: UUID) {
+        learningReports.removeAll { $0.id == id }
+        saveReports()
     }
 
     func delete(scanID: UUID) {
@@ -682,6 +707,32 @@ final class ScanStore: ObservableObject {
     private func dataURL() throws -> URL {
         let dir = try appSupportDir()
         return dir.appendingPathComponent(fileName, isDirectory: false)
+    }
+
+    private func reportsURL() throws -> URL {
+        let dir = try appSupportDir()
+        return dir.appendingPathComponent(reportsFileName, isDirectory: false)
+    }
+
+    private func saveReports() {
+        do {
+            let url = try reportsURL()
+            let data = try JSONEncoder().encode(learningReports)
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            // best-effort
+        }
+    }
+
+    private func loadReports() {
+        do {
+            let url = try reportsURL()
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            let data = try Data(contentsOf: url)
+            learningReports = try JSONDecoder().decode([LearningReport].self, from: data)
+        } catch {
+            // best-effort
+        }
     }
 
     private func appSupportDir() throws -> URL {

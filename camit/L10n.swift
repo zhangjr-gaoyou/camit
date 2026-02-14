@@ -89,6 +89,20 @@ enum L10n {
     static var homeFilterAll: String { isChinese ? "全部" : "All" }
     static var homeRecent: String { isChinese ? "最近添加" : "Recent" }
     static var homeLastWeek: String { isChinese ? "上周" : "Last Week" }
+    static var learningAnalysisTitle: String { isChinese ? "学习分析" : "Learning Analysis" }
+    static var learningAnalysisEmpty: String { isChinese ? "暂无错题记录，请先标记一些错题后再生成报告。" : "No wrong questions yet. Mark some questions as wrong first." }
+    static var learningAnalysisGenerating: String { isChinese ? "正在生成学习报告…" : "Generating report…" }
+    static var learningAnalysisPrompt: String { isChinese ? "基于你的错题记录，AI 将分析知识薄弱点、给出学习建议，并为关键薄弱点生成练习题。" : "Based on your wrong questions, AI will analyze weak points, suggest study directions, and generate practice exercises." }
+    static var learningAnalysisGenerate: String { isChinese ? "生成学习报告" : "Generate Report" }
+    static var learningAnalysisRetry: String { isChinese ? "重试" : "Retry" }
+    static var learningAnalysisReportList: String { isChinese ? "历史报告" : "Report History" }
+    static var learningAnalysisFilterSubject: String { isChinese ? "科目" : "Subject" }
+    static var learningAnalysisFilterMonth: String { isChinese ? "年月" : "Month" }
+    static var learningAnalysisNoReports: String { isChinese ? "暂无历史报告" : "No reports yet" }
+    static var learningAnalysisBackToList: String { isChinese ? "返回列表" : "Back to List" }
+    static var homeArchived: String { isChinese ? "归档" : "Archived" }
+    static var homeArchivedEmpty: String { isChinese ? "暂无归档试卷" : "No archived papers" }
+    static var unarchiveAction: String { isChinese ? "取消归档" : "Unarchive" }
     static var parsing: String { isChinese ? "解析中…" : "Parsing…" }
 
     // MARK: - Wrong Questions
