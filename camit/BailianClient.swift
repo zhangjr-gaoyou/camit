@@ -37,6 +37,7 @@ struct BailianClient {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+        request.timeoutInterval = 120
 
         let body = ChatCompletionsRequest(
             model: config.model,
@@ -155,6 +156,144 @@ struct BailianClient {
             }
             throw BailianError.invalidResponseJSON(raw: content)
         }
+    }
+
+    /// 通用图片理解：返回 Markdown 描述，用于学习问答中的图片附件解析
+    func describeImage(imageJPEGData: Data, config: BailianConfig) async throws -> String {
+        let base = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let baseURL = URL(string: base) else { throw BailianError.invalidBaseURL }
+
+        let url = baseURL.appendingPathComponent("chat/completions")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+
+        let b64 = imageJPEGData.base64EncodedString()
+        let dataURL = "data:image/jpeg;base64,\(b64)"
+
+        let systemPrompt = """
+你是一个图像理解助手，请用 Markdown 简洁描述给定图片的关键信息，适合用于后续学习问答的上下文。
+- 不要输出 JSON，只输出 Markdown 文本。
+- 重点概括：图中主要对象、文字、数据趋势和与学习相关的要点。
+"""
+        let userText = "请用 Markdown 用 3～6 条简短要点总结这张图片的内容。"
+
+        let body = VLChatCompletionsRequest(
+            model: config.vlModel,
+            messages: [
+                .init(role: "system", content: .string(systemPrompt)),
+                .init(
+                    role: "user",
+                    content: .parts([
+                        .text(userText),
+                        .imageURL(dataURL)
+                    ])
+                )
+            ],
+            temperature: 0.3,
+            stream: false
+        )
+
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BailianError.httpError(statusCode: -1, body: "无效响应")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw BailianError.httpError(statusCode: http.statusCode, body: String(data: data, encoding: .utf8) ?? "")
+        }
+
+        if let decoded = try? JSONDecoder().decode(ChatCompletionsResponse.self, from: data),
+           let content = decoded.choices.first?.message.content,
+           !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            debugLogModelResponse(api: "describeImage", content: content)
+            return content
+        }
+
+        let raw = String(data: data, encoding: .utf8) ?? ""
+        if !raw.isEmpty { return raw }
+        throw BailianError.emptyResponse
+    }
+
+    /// 使用 VL 模型结合「图片 + 学生问题」直接回答，用 Markdown（可含数学公式）输出
+    func answerQuestionAboutImage(imageJPEGData: Data, question: String, config: BailianConfig) async throws -> String {
+        let base = config.baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let baseURL = URL(string: base) else { throw BailianError.invalidBaseURL }
+
+        let url = baseURL.appendingPathComponent("chat/completions")
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+
+        let b64 = imageJPEGData.base64EncodedString()
+        let dataURL = "data:image/jpeg;base64,\(b64)"
+
+        let systemPrompt = """
+你是一位擅长讲解题目的「张老师」，现在需要根据图片和学生提出的问题直接作答。
+
+如果图片中**包含**与学生问题直接相关的题目或内容，请用 Markdown 作答，并严格遵守：
+- 不要使用任何标题（禁止 #、##、###）；
+- 使用分行、列表和**粗体**组织内容；
+- 建议使用以下结构：
+  **相关题目**
+  - 尽量完整、准确地复原图片中的题目文字和关键信息（如果是选择题，应当包含题干和选项）。
+
+  **解题思路与答案**
+  - 用分步骤方式说明解题过程；
+  - 数学公式使用 LaTeX 语法（行内 $...$，独立公式 $$...$$）；
+  - 语言简洁，适合中小学生理解。
+
+如果图片中**没有**与学生问题直接相关的题目或内容，请只输出：NOT_FOUND（必须全大写，且不输出任何其他文字）。
+"""
+
+        let userText = """
+下面是学生的问题：
+\(question)
+
+请结合图片内容，直接回答这个问题。
+"""
+
+        let body = VLChatCompletionsRequest(
+            model: config.vlModel,
+            messages: [
+                .init(role: "system", content: .string(systemPrompt)),
+                .init(
+                    role: "user",
+                    content: .parts([
+                        .text(userText),
+                        .imageURL(dataURL)
+                    ])
+                )
+            ],
+            temperature: 0.3,
+            stream: false
+        )
+
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw BailianError.httpError(statusCode: -1, body: "无效响应")
+        }
+        guard (200..<300).contains(http.statusCode) else {
+            throw BailianError.httpError(statusCode: http.statusCode, body: String(data: data, encoding: .utf8) ?? "")
+        }
+
+        if let decoded = try? JSONDecoder().decode(ChatCompletionsResponse.self, from: data),
+           let content = decoded.choices.first?.message.content,
+           !content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            debugLogModelResponse(api: "answerQuestionAboutImage", content: content)
+            return content
+        }
+
+        let raw = String(data: data, encoding: .utf8) ?? ""
+        if !raw.isEmpty { return raw }
+        throw BailianError.emptyResponse
     }
 
     /// 使用 VL 模型校验解析结果：题干/题目区分、边界是否合理

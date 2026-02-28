@@ -4,6 +4,8 @@ struct WrongQuestionsView: View {
     @ObservedObject var settings: AppSettings
     @EnvironmentObject private var store: ScanStore
     @Binding var focusedPaperID: UUID?
+    /// 回到首页
+    var onBackHome: (() -> Void)? = nil
     @State private var showAllQuestions: Bool = false
     @State private var analyzingQuestionIDs: Set<UUID> = []
     @State private var alertMessage: String?
@@ -39,6 +41,15 @@ struct WrongQuestionsView: View {
             .navigationTitle(L10n.tabWrong)
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    if let onBackHome {
+                        Button(L10n.homeBackHome) {
+                            onBackHome()
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(AppTheme.accentBlue)
+                    }
+                }
                 ToolbarItemGroup(placement: .topBarTrailing) {
                     if focusedPaperID != nil {
                         Button(L10n.wrongShowAllPapers) {

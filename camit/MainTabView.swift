@@ -13,18 +13,19 @@ struct MainTabView: View {
     @State private var isShowingSettings: Bool = false
     /// 从试卷 TAB 转向错题 TAB 时，聚焦到此试卷并显示全部题目
     @State private var navigateToWrongPaperID: UUID?
+    @State private var initialChatQuestion: String = ""
+    @State private var isInChat: Bool = false
 
     enum Tab: Hashable {
+        /// 首页（张老师 + 进度报告）
         case papers
+        /// 错题本
         case wrong
     }
 
     var body: some View {
         ZStack {
             content
-        }
-        .safeAreaInset(edge: .bottom) {
-            bottomBar
         }
         .sheet(isPresented: $isShowingCamera) {
             CameraSheetView(
@@ -75,95 +76,54 @@ struct MainTabView: View {
 
     @ViewBuilder
     private var content: some View {
-        switch selectedTab {
-        case .papers:
-            HomeView(settings: settings, onNavigateToWrongQuestions: { paperID in
-                selectedTab = .wrong
-                navigateToWrongPaperID = paperID
-            })
-            .environmentObject(store)
-        case .wrong:
-            WrongQuestionsView(settings: settings, focusedPaperID: $navigateToWrongPaperID)
-                .environmentObject(store)
-        }
-    }
-
-    private var bottomBar: some View {
-        HStack(alignment: .center) {
-            tabButton(
-                title: L10n.tabPapers,
-                systemName: "doc.text",
-                isSelected: selectedTab == .papers
-            ) {
-                selectedTab = .papers
-            }
-
-            Spacer()
-
-            cameraButton
-
-            Spacer()
-
-            tabButton(
-                title: L10n.tabWrong,
-                systemName: "exclamationmark.square",
-                isSelected: selectedTab == .wrong
-            ) {
-                selectedTab = .wrong
-            }
-        }
-        .padding(.horizontal, 28)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
-        .background(AppTheme.cardBackground)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(Color(.separator))
-                .frame(height: 0.5)
-        }
-    }
-
-    private func tabButton(title: String, systemName: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: systemName)
-                    .font(.system(size: 20, weight: .medium))
-                Text(title)
-                    .font(.caption)
-            }
-            .foregroundStyle(isSelected ? AppTheme.accentBlue : AppTheme.secondaryText)
-        }
-        .accessibilityLabel(title)
-    }
-
-    private var cameraButton: some View {
-        Button {
-            if let cfg = settings.effectiveConfig(),
-               !cfg.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-               !cfg.effectiveVLModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                isShowingCamera = true
-            } else {
-                alertMessage = L10n.settingsConfigRequiredForCamera
-            }
-        } label: {
-            VStack(spacing: 6) {
-                ZStack {
-                    Circle()
-                        .fill(AppTheme.accentBlue)
-                        .frame(width: 62, height: 62)
-                        .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 6)
-
-                    Image(systemName: "camera.fill")
-                        .foregroundStyle(.white)
-                        .font(.system(size: 22, weight: .bold))
+        if isInChat {
+            ChatView(
+                settings: settings,
+                initialQuestion: initialChatQuestion,
+                onBackHome: {
+                    initialChatQuestion = ""
+                    isInChat = false
+                    selectedTab = .papers
                 }
-                Text(L10n.tabCamera)
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.secondaryText)
+            )
+            .environmentObject(store)
+        } else {
+            switch selectedTab {
+            case .papers:
+                HomeView(
+                    settings: settings,
+                    onNavigateToWrongQuestions: { paperID in
+                        selectedTab = .wrong
+                        navigateToWrongPaperID = paperID
+                    },
+                    onOpenCamera: { openCameraIfNeeded() },
+                    onOpenWrongTab: { selectedTab = .wrong; navigateToWrongPaperID = nil },
+                    onStartChat: { question in
+                        initialChatQuestion = question
+                        isInChat = true
+                    }
+                )
+                .environmentObject(store)
+            case .wrong:
+                WrongQuestionsView(
+                    settings: settings,
+                    focusedPaperID: $navigateToWrongPaperID,
+                    onBackHome: { selectedTab = .papers }
+                )
+                .environmentObject(store)
+            }
         }
+    }
+
+    /// 从首页或其它入口打开拍照，自动检查配置是否完整
+    private func openCameraIfNeeded() {
+        if let cfg = settings.effectiveConfig(),
+           !cfg.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           !cfg.effectiveVLModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            isShowingCamera = true
+        } else {
+            alertMessage = L10n.settingsConfigRequiredForCamera
         }
-        .accessibilityLabel("拍照")
-        .accessibilityHint("打开相机拍照扫描")
     }
 
     @MainActor

@@ -8,13 +8,16 @@ private let parseSuccessScoreThreshold = 75
 final class ScanStore: ObservableObject {
     @Published private(set) var items: [ScanItem] = []
     @Published private(set) var learningReports: [LearningReport] = []
+    @Published private(set) var chatSessions: [ChatSession] = []
 
     private let fileName = "scans.json"
     private let reportsFileName = "learning_reports.json"
+    private let chatFileName = "chat_sessions.json"
 
     init() {
         load()
         loadReports()
+        loadChatSessions()
         if items.isEmpty {
             seed()
         }
@@ -159,6 +162,36 @@ final class ScanStore: ObservableObject {
     func deleteLearningReport(id: UUID) {
         learningReports.removeAll { $0.id == id }
         saveReports()
+    }
+
+    // MARK: - Chat sessions
+
+    func upsertChatSession(id: UUID, title: String, messages: [ChatMessageRecord]) {
+        let now = Date()
+        if let index = chatSessions.firstIndex(where: { $0.id == id }) {
+            chatSessions[index].title = title
+            chatSessions[index].updatedAt = now
+            chatSessions[index].messages = messages
+        } else {
+            let session = ChatSession(
+                id: id,
+                title: title,
+                createdAt: now,
+                updatedAt: now,
+                messages: messages
+            )
+            chatSessions.insert(session, at: 0)
+        }
+        saveChatSessions()
+    }
+
+    func allChatSessions() -> [ChatSession] {
+        chatSessions.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    func deleteChatSession(id: UUID) {
+        chatSessions.removeAll { $0.id == id }
+        saveChatSessions()
     }
 
     func delete(scanID: UUID) {
@@ -714,6 +747,11 @@ final class ScanStore: ObservableObject {
         return dir.appendingPathComponent(reportsFileName, isDirectory: false)
     }
 
+    private func chatURL() throws -> URL {
+        let dir = try appSupportDir()
+        return dir.appendingPathComponent(chatFileName, isDirectory: false)
+    }
+
     private func saveReports() {
         do {
             let url = try reportsURL()
@@ -730,6 +768,27 @@ final class ScanStore: ObservableObject {
             guard FileManager.default.fileExists(atPath: url.path) else { return }
             let data = try Data(contentsOf: url)
             learningReports = try JSONDecoder().decode([LearningReport].self, from: data)
+        } catch {
+            // best-effort
+        }
+    }
+
+    private func saveChatSessions() {
+        do {
+            let url = try chatURL()
+            let data = try JSONEncoder().encode(chatSessions)
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            // best-effort
+        }
+    }
+
+    private func loadChatSessions() {
+        do {
+            let url = try chatURL()
+            guard FileManager.default.fileExists(atPath: url.path) else { return }
+            let data = try Data(contentsOf: url)
+            chatSessions = try JSONDecoder().decode([ChatSession].self, from: data)
         } catch {
             // best-effort
         }

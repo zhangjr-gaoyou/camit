@@ -71,6 +71,7 @@ enum L10n {
     }
     static var alertTitle: String { isChinese ? "提示" : "Notice" }
     static var alertOK: String { isChinese ? "确定" : "OK" }
+    static var chatUnsupportedFileType: String { isChinese ? "应用暂不支持该类型文件。" : "This file type is not supported yet." }
     static var cancel: String { isChinese ? "取消" : "Cancel" }
     static var notificationTitle: String { isChinese ? "通知" : "Notifications" }
     static var noNotifications: String { isChinese ? "暂无新通知。" : "No new notifications." }
@@ -102,6 +103,49 @@ enum L10n {
     static var learningAnalysisBackToList: String { isChinese ? "返回列表" : "Back to List" }
     static var homeArchived: String { isChinese ? "归档" : "Archived" }
     static var homeArchivedEmpty: String { isChinese ? "暂无归档试卷" : "No archived papers" }
+
+    // MARK: - Home (New UI - 张老师 AI)
+    static var homeAITeacherName: String { isChinese ? "张老师" : "Teacher Zhang" }
+    static var homeAIStatus: String { isChinese ? "在线并随时为您提供帮助" : "Online and ready to help" }
+    static var homeAIProgressTitle: String { isChinese ? "进度评估" : "Progress Evaluation" }
+    static func homeAIProgressSummary(papersCount: Int, percent: Int, focusHint: String) -> String {
+        if isChinese {
+            return "您好!本周您已分析了 **\(papersCount)** 份试卷。您的代数掌握程度提高了 **\(percent)%**, 但\(focusHint)。继续努力!"
+        } else {
+            return "Hello! You have analyzed **\(papersCount)** papers this week. Your algebra improved by **\(percent)%**, but \(focusHint). Keep it up!"
+        }
+    }
+    /// 「成绩评估」卡片标题
+    static var homeCompletionTitle: String { isChinese ? "成绩评估" : "Score Evaluation" }
+    static var homeFocusTitle: String { isChinese ? "重点关注" : "Key Focus" }
+    static var homeFocusSubjects: String { isChinese ? "数/英/科" : "Math/Eng/Sci" }
+    static var homeQuickScan: String { isChinese ? "扫一扫" : "Scan" }
+    static var homeQuickPapers: String { isChinese ? "试卷库" : "Papers" }
+    static var homeQuickWrong: String { isChinese ? "错题本" : "Wrong" }
+    static var homeQuickReport: String { isChinese ? "学习报告" : "Report" }
+    static var homeRecentGuidance: String { isChinese ? "最近指导" : "Recent Guidance" }
+    static var homeGuidanceJustNow: String { isChinese ? "刚刚" : "Just now" }
+    static var homeGuidanceSample: String {
+        isChinese ? "我注意到你在上一份几何试卷中对圆定理掌握得较差。我建议你看一下这个微课来弥补差距。" : "I noticed you struggled with circle theorems in your last geometry paper. I suggest watching this micro-lesson to bridge the gap."
+    }
+    static var homeVideoDuration: String { isChinese ? "8分钟" : "8 min" }
+    static var homeAskPlaceholder: String { isChinese ? "问问张老师任何问题…" : "Ask Teacher Zhang anything…" }
+    static var homeGeometryFocusHint: String { isChinese ? "几何学仍需关注——特别是圆定理" : "geometry still needs attention—especially circle theorems" }
+    static var homeFocusNoData: String { isChinese ? "暂无错题数据" : "No wrong-question data yet" }
+    static var homeGuidanceNoWrong: String { isChinese ? "当前没有错题记录，继续保持！" : "No wrong questions for now, keep it up!" }
+    static var homeGuidanceGenericTags: String {
+        isChinese ? "最近的错题分布在若干不同知识点上" : "recent mistakes are spread across several topics"
+    }
+    static func homeGuidanceByStats(tagSummary: String, wrongCount: Int) -> String {
+        if isChinese {
+            return "最近你在 \(tagSummary) 等知识点上共出现了 \(wrongCount) 道错题。建议先回顾相关概念与公式，再完成几套针对性的练习题，查漏补缺。"
+        } else {
+            return "Recently you made \(wrongCount) mistakes around topics such as \(tagSummary). Please review the key concepts and formulas for these topics, then do several targeted practice sets to fill the gaps."
+        }
+    }
+
+    /// 回到首页按钮文案
+    static var homeBackHome: String { isChinese ? "回到首页" : "Back to Home" }
     static var unarchiveAction: String { isChinese ? "取消归档" : "Unarchive" }
     static var parsing: String { isChinese ? "解析中…" : "Parsing…" }
 

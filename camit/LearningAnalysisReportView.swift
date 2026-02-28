@@ -9,6 +9,8 @@ struct LearningAnalysisReportView: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var store: ScanStore
     @ObservedObject var settings: AppSettings
+    /// 回到首页（若为 nil，则退回调用方或关闭弹窗）
+    var onBackHome: (() -> Void)? = nil
 
     @State private var selectedReportID: UUID?
     @State private var isGenerating: Bool = false
@@ -132,11 +134,18 @@ struct LearningAnalysisReportView: View {
             .navigationTitle(L10n.learningAnalysisTitle)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button(L10n.settingsClose) {
-                        dismiss()
+                ToolbarItem(placement: .topBarLeading) {
+                    if let onBackHome {
+                        Button(L10n.homeBackHome) {
+                            onBackHome()
+                        }
+                        .foregroundStyle(AppTheme.accentBlue)
+                    } else {
+                        Button(L10n.settingsClose) {
+                            dismiss()
+                        }
+                        .foregroundStyle(AppTheme.accentBlue)
                     }
-                    .foregroundStyle(AppTheme.accentBlue)
                 }
                 if displayedContent != nil {
                     ToolbarItem(placement: .primaryAction) {
