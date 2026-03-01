@@ -557,49 +557,59 @@ struct HomeView: View {
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
+    /// 试卷工具卡片：扫一扫、试题库、错题本、学习报告，样式同进度评估
     private var quickAccessGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
-            QuickAccessButton(icon: "doc.viewfinder", title: L10n.homeQuickScan, color: AppTheme.accentBlue) {
-                onOpenCamera?()
-            }
-            QuickAccessButton(icon: "folder", title: L10n.homeQuickPapers, color: AppTheme.accentBlue) {
-                currentPage = .papersLibrary
-            }
-            QuickAccessButton(icon: "exclamationmark.circle.fill", title: L10n.homeQuickWrong, color: Color.orange) {
-                onOpenWrongTab?()
-            }
-            QuickAccessButton(icon: "chart.bar.fill", title: L10n.homeQuickReport, color: Color.purple) {
-                currentPage = .learningReport
+        VStack(alignment: .leading, spacing: 14) {
+            Text(L10n.homePaperToolsTitle)
+                .font(.headline.weight(.bold))
+                .foregroundStyle(.primary)
+
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                QuickAccessButton(icon: "doc.viewfinder", title: L10n.homeQuickScan, color: AppTheme.accentBlue) {
+                    onOpenCamera?()
+                }
+                QuickAccessButton(icon: "folder", title: L10n.homeQuickPapers, color: AppTheme.accentBlue) {
+                    currentPage = .papersLibrary
+                }
+                QuickAccessButton(icon: "exclamationmark.circle.fill", title: L10n.homeQuickWrong, color: Color.orange) {
+                    onOpenWrongTab?()
+                }
+                QuickAccessButton(icon: "chart.bar.fill", title: L10n.homeQuickReport, color: Color.purple) {
+                    currentPage = .learningReport
+                }
             }
         }
+        .padding(18)
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
+        .shadow(color: .black.opacity(AppTheme.cardShadowOpacity), radius: AppTheme.cardShadowRadius, x: 0, y: AppTheme.cardShadowY)
     }
 
+    /// 最近指导：标题与内容均在同一卡片内，张老师前为人像图标
     private var recentGuidanceCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(L10n.homeRecentGuidance)
                 .font(.headline.weight(.bold))
                 .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "gearshape.fill")
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                    Text(L10n.homeAITeacherName)
-                        .font(.subheadline.weight(.semibold))
-                    Text(L10n.homeGuidanceJustNow)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.secondaryText)
-                }
-                MarkdownReportView(content: defaultGuidanceText)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.secondaryText)
+                Text(L10n.homeAITeacherName)
+                    .font(.subheadline.weight(.semibold))
+                Text(L10n.homeGuidanceJustNow)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.secondaryText)
             }
-            .padding(16)
-            .background(AppTheme.cardBackground)
-            .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
-            .shadow(color: .black.opacity(AppTheme.cardShadowOpacity), radius: AppTheme.cardShadowRadius, x: 0, y: AppTheme.cardShadowY)
+
+            MarkdownReportView(content: defaultGuidanceText)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(18)
+        .background(AppTheme.cardBackground)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardCornerRadius, style: .continuous))
+        .shadow(color: .black.opacity(AppTheme.cardShadowOpacity), radius: AppTheme.cardShadowRadius, x: 0, y: AppTheme.cardShadowY)
     }
 
     /// 首页右下角的「张老师」浮动按钮，点击进入学习问答页面

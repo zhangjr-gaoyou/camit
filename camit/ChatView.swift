@@ -71,7 +71,7 @@ struct ChatView: View {
                             .resizable()
                             .renderingMode(.template)
                             .foregroundStyle(AppTheme.secondaryText)
-                            .frame(width: 20, height: 20)
+                            .frame(width: 24, height: 24)
                     }
                 }
             }

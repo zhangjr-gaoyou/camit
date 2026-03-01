@@ -119,8 +119,10 @@ enum L10n {
     static var homeCompletionTitle: String { isChinese ? "成绩评估" : "Score Evaluation" }
     static var homeFocusTitle: String { isChinese ? "重点关注" : "Key Focus" }
     static var homeFocusSubjects: String { isChinese ? "数/英/科" : "Math/Eng/Sci" }
+    /// 「试卷工具」卡片标题
+    static var homePaperToolsTitle: String { isChinese ? "试卷工具" : "Paper Tools" }
     static var homeQuickScan: String { isChinese ? "扫一扫" : "Scan" }
-    static var homeQuickPapers: String { isChinese ? "试卷库" : "Papers" }
+    static var homeQuickPapers: String { isChinese ? "试题库" : "Papers" }
     static var homeQuickWrong: String { isChinese ? "错题本" : "Wrong" }
     static var homeQuickReport: String { isChinese ? "学习报告" : "Report" }
     static var homeRecentGuidance: String { isChinese ? "最近指导" : "Recent Guidance" }
